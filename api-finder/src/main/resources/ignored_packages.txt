@@ -1,0 +1,11 @@
+org.apache.pdfbox
+org.testng
+org.junit
+org.eclipse
+org.hamcrest
+org.mockito
+org.apache.maven
+org.codehaus
+org.slf4j
+#javax.
+#jakarta.

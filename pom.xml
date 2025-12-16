@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.sparkrew</groupId>
+    <artifactId>fika</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <developers>
+        <developer>
+            <id>yogyagamage</id>
+            <name>Yogya Tulip Gamage</name>
+            <email>my.second.name@gmail.com</email>
+        </developer>
+    </developers>
+
+    <modules>
+        <module>preprocessor</module>
+        <module>api-finder</module>
+    </modules>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <soot.version>2.0.0</soot.version>
+        <picocli.version>4.7.6</picocli.version>
+        <slf4j.version>2.0.16</slf4j.version>
+        <jackson.version>2.18.0</jackson.version>
+        <jsoup.version>1.21.2</jsoup.version>
+        <spoon.version>11.2.1</spoon.version>
+        <maven.compiler.plugin.version>3.8.1</maven.compiler.plugin.version>
+        <maven.core.version>3.2.5</maven.core.version>
+        <maven.plugin.plugin.version>3.9.0</maven.plugin.plugin.version>
+        <maven.plugin.annotation.version>3.8.1</maven.plugin.annotation.version>
+        <maven.project.version>2.2.1</maven.project.version>
+        <maven.assembly.plugin.version>3.2.0</maven.assembly.plugin.version>
+        <maven.exec.plugin.version>3.1.0</maven.exec.plugin.version>
+    </properties>
+
+</project>
