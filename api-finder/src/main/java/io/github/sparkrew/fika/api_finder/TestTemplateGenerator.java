@@ -42,8 +42,13 @@ public class TestTemplateGenerator {
             MethodSignature lastPathMethod = thirdPartyPath.path().size() < 2 ? thirdPartyMethod : thirdPartyPath.path().get(thirdPartyPath.path().size() - 2);
             String lastMethodClassName = extractSimpleClassName(lastPathMethod.getDeclClassType().getFullyQualifiedName());
             String lastMethodName = lastPathMethod.getName();
-            // ToDo: Change the test class name when a proper name is decided.
-            String testClassName = entryPointClassName + thirdPartyClassName + thirdPartyMethodName + lastMethodClassName + lastMethodName + "Fika" + "Test";
+            // Build test class name based on path size
+            String testClassName;
+            if (lastMethodClassName.equals(entryPointClassName)) {
+                testClassName = lastMethodClassName + lastMethodName + "_" + thirdPartyClassName + thirdPartyMethodName + "FikaTest";
+            } else {
+                testClassName = entryPointClassName + "_" + lastMethodClassName + lastMethodName + "_" + thirdPartyClassName + thirdPartyMethodName + "FikaTest";
+            }
             String testMethodName = "test" + capitalizeFirstLetter(entryPointMethodName);
             // Here, we replace placeholders in the template.
             template = template.replace("packagename", entryPointPackage);
