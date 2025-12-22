@@ -26,9 +26,9 @@ public class PathWriter {
     /**
      * Write all three output formats from the analysis result.
      */
-    public static void writeAllFormats(AnalysisResult result, String basePath, JavaView view, String sourceRootPath) {
+    public static void writeAllFormats(AnalysisResult result, String basePath, String sourceRootPath) {
         String fullMethodsPath = basePath.replace(".json", "_full_methods.json");
-        writeFullMethodsFormat(result, fullMethodsPath, view, sourceRootPath);
+        writeFullMethodsFormat(result, fullMethodsPath, sourceRootPath);
     }
 
     /**
@@ -49,13 +49,13 @@ public class PathWriter {
      * Write paths with full method bodies for all methods.
      * Enhanced to add tracking comments along the path.
      */
-    private static void writeFullMethodsFormat(AnalysisResult result, String outputPath, JavaView view, String sourceRootPath) {
+    private static void writeFullMethodsFormat(AnalysisResult result, String outputPath, String sourceRootPath) {
         ObjectMapper mapper = new ObjectMapper();
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
         try {
             List<FullMethodsPathData> fullMethodsPaths = new ArrayList<>();
             for (ThirdPartyPath tp : result.thirdPartyPaths()) {
-                List<String> fullMethods = extractFullMethodBodiesWithComments(view, tp.path(), sourceRootPath);
+                List<String> fullMethods = extractFullMethodBodiesWithComments(tp.path(), sourceRootPath);
                 ClassMemberData classMembers =
                         SourceCodeExtractor.extractClassMembers(tp.entryPoint(), sourceRootPath);
                 Set<String> importsSet = SourceCodeExtractor.extractRequiredImports(
@@ -63,7 +63,7 @@ public class PathWriter {
                 List<String> imports = new ArrayList<>(importsSet);
                 Collections.sort(imports);
                 // This is for the test template generation.  This would be another prompt format if needed.
-                String testTemplate = TestTemplateGenerator.generateTestTemplate(tp, view);
+                String testTemplate = TestTemplateGenerator.generateTestTemplate(tp);
                 int conditionCount = RecordCounter.countConditionsInPath(tp.path(), sourceRootPath);
                 log.debug("Path to {} has {} conditions",
                         MethodExtractor.getFilteredMethodSignature(tp.thirdPartyMethod()),
@@ -113,8 +113,7 @@ public class PathWriter {
      * Extract full method bodies with path tracking comments.
      * Each method will have a comment indicating which call leads to the next method in the path.
      */
-    private static List<String> extractFullMethodBodiesWithComments(JavaView view,
-                                                                    List<MethodSignature> path,
+    private static List<String> extractFullMethodBodiesWithComments(List<MethodSignature> path,
                                                                     String sourceRootPath) {
         List<String> methodBodies = new ArrayList<>();
         // We do not want the bytecode of the third-party method itself
@@ -129,7 +128,7 @@ public class PathWriter {
             MethodSignature currentMethod = pathWithoutThirdParty.get(i);
             // Get the next method in the path (could be from pathWithoutThirdParty or the third-party method)
             MethodSignature nextMethod = (i + 1 < path.size()) ? path.get(i + 1) : null;
-            String body = extractMethodBodyWithComment(view, currentMethod, nextMethod, sourceRootPath);
+            String body = extractMethodBodyWithComment(currentMethod, nextMethod, sourceRootPath);
             methodBodies.add(body);
         }
         return methodBodies;
@@ -138,8 +137,7 @@ public class PathWriter {
     /**
      * Extract the body of a single method with a tracking comment for the next method in the path.
      */
-    private static String extractMethodBodyWithComment(JavaView view,
-                                                       MethodSignature methodSig,
+    private static String extractMethodBodyWithComment(MethodSignature methodSig,
                                                        MethodSignature nextMethodSig,
                                                        String sourceRootPath) {
         // If source root is provided, extract from source code with path tracking

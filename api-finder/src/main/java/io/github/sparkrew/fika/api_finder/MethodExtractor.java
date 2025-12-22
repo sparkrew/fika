@@ -50,7 +50,7 @@ public class MethodExtractor {
         log.info("Found " + entryPoints.size() + " public methods as entry points.");
         AnalysisResult result = analyzeReachability(view, entryPoints, packageMapPath, jacocoHtmlDirs);
         // Write the three different output files
-        PathWriter.writeAllFormats(result, reportPath, view, sourceRootPath);
+        PathWriter.writeAllFormats(result, reportPath, sourceRootPath);
         log.info("All analysis reports written successfully.");
     }
 
