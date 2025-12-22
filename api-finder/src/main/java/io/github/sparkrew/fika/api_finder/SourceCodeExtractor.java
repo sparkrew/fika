@@ -182,11 +182,11 @@ public class SourceCodeExtractor {
                         endPos++;
                     }
                     if (endPos < originalCode.length() && originalCode.charAt(endPos) == ';') {
-                        endPos++; 
+                        endPos++;
                     }
                     String before = originalCode.substring(0, endPos);
                     String after = originalCode.substring(endPos);
-                    String comment = " // the generated test should call this method";
+                    String comment = " // the generated test should call this method in addition to the other methods along the path.";
                     return before + comment + after;
                 }
             }
@@ -308,6 +308,7 @@ public class SourceCodeExtractor {
 
     // ToDo: It should be possible to remove the duplicated parts within imports extraction and source code extraction.
     //  Because they both need to find the same methods and constructors.
+
     /**
      * Extract all required imports for constructors and methods in the path.
      * This includes parameter types, return types, and types used in method bodies.
@@ -483,6 +484,7 @@ public class SourceCodeExtractor {
             this.targetMethodName = targetMethodName;
             this.targetClassName = targetClassName;
         }
+
         @Override
         public <T> void visitCtInvocation(CtInvocation<T> invocation) {
             if (targetInvocation != null) {

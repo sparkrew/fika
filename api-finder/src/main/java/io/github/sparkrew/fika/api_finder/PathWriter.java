@@ -8,7 +8,6 @@ import io.github.sparkrew.fika.api_finder.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sootup.core.signatures.MethodSignature;
-import sootup.java.core.views.JavaView;
 
 import java.io.File;
 import java.io.FileWriter;
