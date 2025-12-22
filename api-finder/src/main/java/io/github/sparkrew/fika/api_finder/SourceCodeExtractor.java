@@ -7,31 +7,26 @@ import org.slf4j.LoggerFactory;
 import sootup.core.signatures.MethodSignature;
 import spoon.MavenLauncher;
 import spoon.reflect.CtModel;
+import spoon.reflect.code.CtInvocation;
+import spoon.reflect.code.CtStatement;
 import spoon.reflect.declaration.CtConstructor;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
+import spoon.reflect.visitor.CtScanner;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * Extracts actual source code from Java files using Spoon.
- * This reads the project's .java files to get the real source code
- * instead of the Jimple IR representation.
- * <p>
- * Uses caching at two levels:
- * Model cache: The parsed Spoon model for the source root
- * Method cache: Individual method bodies that have been extracted
+ * Enhanced to add tracking comments for method calls along paths.
  */
 public class SourceCodeExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(SourceCodeExtractor.class);
-    // Method cache: maps method signature string to extracted source code
     private static final Map<String, String> methodCache = new HashMap<>();
-    // Type cache: maps class name to CtType for faster lookups
     private static final Map<String, CtType<?>> typeCache = new HashMap<>();
     protected static String currentSourceRoot;
-    // Model cache
     private static CtModel model;
 
     /**
@@ -39,7 +34,6 @@ public class SourceCodeExtractor {
      * This is cached to avoid re-parsing the entire source tree multiple times.
      */
     private static CtModel getOrCreateModel(String sourceRootPath) {
-        // Cache the model if we are using the same source root
         if (model != null && sourceRootPath.equals(currentSourceRoot)) {
             return model;
         }
@@ -47,13 +41,11 @@ public class SourceCodeExtractor {
         try {
             MavenLauncher launcher = new MavenLauncher(sourceRootPath,
                     MavenLauncher.SOURCE_TYPE.APP_SOURCE);
-            // Configure Spoon to be more lenient
             launcher.getEnvironment().setNoClasspath(true);
             launcher.getEnvironment().setCommentEnabled(true);
             launcher.getEnvironment().disableConsistencyChecks();
             model = launcher.buildModel();
             currentSourceRoot = sourceRootPath;
-            // Clear caches when we build a new model
             methodCache.clear();
             typeCache.clear();
             log.info("Spoon model built successfully with {} types", model.getAllTypes().size());
@@ -74,49 +66,42 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Extract a method's source code from the actual Java source file using Spoon.
+     * Extract a method's source code with optional path tracking comment.
      *
      * @param methodSig      The method signature to extract
      * @param sourceRootPath The root directory of the source code
-     * @return The source code of the method, or null if not found
+     * @param nextMethodSig  The next method in the path (null if this is the last method)
+     * @return The source code of the method with tracking comment added if applicable
      */
-    public static String extractMethodFromSource(MethodSignature methodSig, String sourceRootPath) {
-        // Create a cache key from the method signature
-        String cacheKey = methodSig.toString();
-        // Check if we already extracted this method
+    public static String extractMethodFromSource(MethodSignature methodSig, String sourceRootPath,
+                                                 MethodSignature nextMethodSig) {
+        String cacheKey = methodSig.toString() + (nextMethodSig != null ? "|" + nextMethodSig.toString() : "");
         if (methodCache.containsKey(cacheKey)) {
             log.trace("Method cache hit for {}", cacheKey);
             return methodCache.get(cacheKey);
         }
         try {
             CtModel spoonModel = getOrCreateModel(sourceRootPath);
-            // Get the fully qualified class name
             String className = methodSig.getDeclClassType().getFullyQualifiedName();
             String methodName = methodSig.getName();
             // Handle inner classes - Spoon uses $ for inner classes
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
-                // Cache the null result to avoid repeated lookups
                 methodCache.put(cacheKey, null);
                 return null;
             }
-            // Handle special method names from bytecode
             String sourceCode = null;
             if ("<init>".equals(methodName)) {
-                // <init> represents a constructor
-                sourceCode = extractConstructor(ctType, methodSig);
+                sourceCode = extractConstructor(ctType, methodSig, nextMethodSig);
             } else if ("<clinit>".equals(methodName)) {
-                // <clinit> represents a static initializer block
                 sourceCode = extractStaticInitializer(ctType);
             } else {
-                // Regular method - pass methodSig for overload resolution
-                sourceCode = extractRegularMethod(ctType, methodName, methodSig);
+                sourceCode = extractRegularMethod(ctType, methodName, methodSig, nextMethodSig);
             }
             if (sourceCode == null) {
                 log.debug("Method {} not found in type {}", methodName, className);
             }
-            // Cache the result (even if null)
             methodCache.put(cacheKey, sourceCode);
             if (sourceCode != null) {
                 log.trace("Cached method source for {}", cacheKey);
@@ -124,34 +109,91 @@ public class SourceCodeExtractor {
             return sourceCode;
         } catch (Exception e) {
             log.warn("Error extracting source code for {}: {}", methodSig, e.getMessage());
-            // Cache the null result to avoid repeated errors
             methodCache.put(cacheKey, null);
             return null;
         }
     }
 
     /**
+     * Backward compatibility method without path tracking.
      * Extract a regular method by name and parameter types.
      * Handles method overloading by matching the full signature.
      */
-    private static String extractRegularMethod(CtType<?> ctType, String methodName, MethodSignature methodSig) {
-        var method = SpoonMethodFinder.findRegularMethod(ctType, methodName, methodSig);
-        return method != null ? method.prettyprint() : null;
+    public static String extractMethodFromSource(MethodSignature methodSig, String sourceRootPath) {
+        return extractMethodFromSource(methodSig, sourceRootPath, null);
     }
 
     /**
-     * Extract a constructor from the type.
-     * If there are multiple constructors, tries to match by parameter count.
-     * Otherwise returns the first constructor.
+     * Extract a regular method by name and parameter types and adds comments.
+     * Handles method overloading by matching the full signature.
      */
-    private static String extractConstructor(CtType<?> ctType, MethodSignature methodSig) {
-        var constructor = SpoonMethodFinder.findConstructor(ctType, methodSig);
-        return constructor != null ? constructor.prettyprint() : null;
+    private static String extractRegularMethod(CtType<?> ctType, String methodName,
+                                               MethodSignature methodSig, MethodSignature nextMethodSig) {
+        CtMethod<?> method = SpoonMethodFinder.findRegularMethod(ctType, methodName, methodSig);
+        if (method == null) {
+            return null;
+        }
+        if (nextMethodSig != null) {
+            return addPathTrackingComment(method, nextMethodSig);
+        }
+        return method.prettyprint();
     }
 
     /**
-     * Find a type with caching to speed up repeated lookups.
+     * Extract a constructor with path tracking comment.
      */
+    private static String extractConstructor(CtType<?> ctType, MethodSignature methodSig,
+                                             MethodSignature nextMethodSig) {
+        CtConstructor<?> constructor = SpoonMethodFinder.findConstructor(ctType, methodSig);
+        if (constructor == null) {
+            return null;
+        }
+        if (nextMethodSig != null) {
+            return addPathTrackingComment(constructor, nextMethodSig);
+        }
+        return constructor.prettyprint();
+    }
+
+    /**
+     * Add a tracking comment after the method call that leads to the next method in the path.
+     */
+    private static String addPathTrackingComment(spoon.reflect.declaration.CtExecutable<?> executable,
+                                                 MethodSignature nextMethodSig) {
+        if (executable.getBody() == null) {
+            return executable.prettyprint();
+        }
+        String nextMethodName = nextMethodSig.getName();
+        String nextClassName = nextMethodSig.getDeclClassType().getFullyQualifiedName();
+        PathCallFinder finder = new PathCallFinder(nextMethodName, nextClassName);
+        executable.getBody().accept(finder);
+        if (finder.targetInvocation != null) {
+            // Add inline comment after the statement containing the invocation
+            CtStatement statement = finder.targetInvocation.getParent(CtStatement.class);
+            if (statement != null) {
+                String originalCode = executable.prettyprint();
+                String statementStr = statement.toString();
+                // Find the statement in the original code and add comment after it
+                int statementPos = originalCode.indexOf(statementStr);
+                if (statementPos != -1) {
+                    int endPos = statementPos + statementStr.length();
+                    while (endPos < originalCode.length() &&
+                            originalCode.charAt(endPos) != ';' &&
+                            originalCode.charAt(endPos) != '}') {
+                        endPos++;
+                    }
+                    if (endPos < originalCode.length() && originalCode.charAt(endPos) == ';') {
+                        endPos++; 
+                    }
+                    String before = originalCode.substring(0, endPos);
+                    String after = originalCode.substring(endPos);
+                    String comment = " // the generated test should call this method";
+                    return before + comment + after;
+                }
+            }
+        }
+        return executable.prettyprint();
+    }
+
     private static CtType<?> findTypeCached(CtModel spoonModel, String fullyQualifiedName) {
         return SpoonMethodFinder.findTypeCached(spoonModel, fullyQualifiedName);
     }
@@ -161,18 +203,16 @@ public class SourceCodeExtractor {
      * Static initializers are represented as <clinit> in bytecode.
      */
     private static String extractStaticInitializer(CtType<?> ctType) {
-        // Get all anonymous executable blocks (static initializers)
+        // Get all anonymous executable blocks which are static initializers.
         var staticBlocks = ctType.getElements(
                 element -> element instanceof spoon.reflect.code.CtBlock &&
                         element.getParent() instanceof CtType &&
                         !element.isImplicit()
         );
         if (staticBlocks.isEmpty()) {
-            // No explicit static initializer found
             log.debug("No static initializer found for {}", ctType.getQualifiedName());
             return "";
         }
-        // Combine all static blocks
         StringBuilder sb = new StringBuilder();
         sb.append(ctType.getQualifiedName()).append("\n");
         for (var block : staticBlocks) {
@@ -182,7 +222,7 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Get the Spoon model for use in other classes (like MethodSlicer).
+     * Get the Spoon model for use in other classes.
      * This allows sharing the same parsed model across different operations.
      */
     public static CtModel getModel(String sourceRootPath) {
@@ -289,7 +329,6 @@ public class SourceCodeExtractor {
                 log.debug("Type not found in Spoon model: {}", className);
                 return imports;
             }
-            // Extract imports from constructors
             var constructorElements = ctType.getElements(
                     element -> element instanceof spoon.reflect.declaration.CtConstructor
             );
@@ -297,11 +336,9 @@ public class SourceCodeExtractor {
                 CtConstructor<?> ctConstructor = (CtConstructor<?>) constructor;
                 extractImportsFromExecutable(ctConstructor, imports);
             }
-            // Extract imports from all methods in the path
             for (MethodSignature methodSig : pathSignatures) {
                 extractImportsFromMethodSignature(spoonModel, methodSig, imports);
             }
-            // Filter out primitive types, java.lang classes, and same-package classes
             imports = filterImports(imports, className);
             log.debug("Extracted {} imports for {}", imports.size(), className);
         } catch (Exception e) {
@@ -323,13 +360,11 @@ public class SourceCodeExtractor {
         }
         String methodName = methodSig.getName();
         if ("<init>".equals(methodName)) {
-            // Constructor
             ctType.getElements(element -> element instanceof spoon.reflect.declaration.CtConstructor)
                     .forEach(c -> extractImportsFromExecutable((CtConstructor<?>) c, imports));
         } else if ("<clinit>".equals(methodName)) {
             extractImportsFromStaticInitializer(ctType, imports);
         } else {
-            // Regular method
             ctType.getMethods().stream()
                     .filter(m -> m.getSimpleName().equals(methodName))
                     .forEach(m -> extractImportsFromExecutable(m, imports));
@@ -340,14 +375,12 @@ public class SourceCodeExtractor {
      * Extract imports from static initializer blocks.
      */
     private static void extractImportsFromStaticInitializer(CtType<?> ctType, Set<String> imports) {
-        // Get all anonymous executable blocks (static initializers)
         var staticBlocks = ctType.getElements(
                 element -> element instanceof spoon.reflect.code.CtBlock &&
                         element.getParent() instanceof CtType &&
                         !element.isImplicit()
         );
         for (var block : staticBlocks) {
-            // Extract all type references from the static block
             block.getElements(element -> element instanceof spoon.reflect.reference.CtTypeReference)
                     .forEach(typeRef -> addTypeImport((spoon.reflect.reference.CtTypeReference<?>) typeRef, imports));
         }
@@ -359,15 +392,11 @@ public class SourceCodeExtractor {
      */
     private static void extractImportsFromExecutable(spoon.reflect.declaration.CtExecutable<?> executable,
                                                      Set<String> imports) {
-        // Extract parameter types
         executable.getParameters().forEach(param -> addTypeImport(param.getType(), imports));
-        // Extract return type (for methods)
         if (executable instanceof CtMethod<?> method) {
             addTypeImport(method.getType(), imports);
         }
-        // Extract types from thrown exceptions
         executable.getThrownTypes().forEach(thrownType -> addTypeImport(thrownType, imports));
-        // Extract types used in the method body
         if (executable.getBody() != null) {
             executable.getBody().getElements(element -> element instanceof spoon.reflect.reference.CtTypeReference)
                     .forEach(typeRef -> addTypeImport((spoon.reflect.reference.CtTypeReference<?>) typeRef, imports));
@@ -383,14 +412,11 @@ public class SourceCodeExtractor {
         }
         String qualifiedName = typeRef.getQualifiedName();
         if (qualifiedName != null && !qualifiedName.isEmpty()) {
-            // Handle generic types - extract the base type
             if (qualifiedName.contains("<")) {
                 qualifiedName = qualifiedName.substring(0, qualifiedName.indexOf("<"));
             }
-            // Handle array types
             qualifiedName = qualifiedName.replace("[]", "");
             imports.add(qualifiedName);
-            // Also add generic type arguments
             typeRef.getActualTypeArguments().forEach(typeArg -> addTypeImport(typeArg, imports));
         }
     }
@@ -403,10 +429,10 @@ public class SourceCodeExtractor {
                 Math.max(currentClassName.lastIndexOf('.'), 0));
         return imports.stream()
                 .filter(imp -> imp != null && !imp.isEmpty())
-                .filter(imp -> imp.contains(".")) // Has a package
-                .filter(imp -> !imp.startsWith("java.")) // Not from java.* packages
-                .filter(imp -> !isPrimitiveOrWrapper(imp)) // Not primitive
-                .filter(imp -> !imp.startsWith(currentPackage + ".") || imp.contains("$")) // Not same package unless inner class
+                .filter(imp -> imp.contains("."))
+                .filter(imp -> !imp.startsWith("java."))
+                .filter(imp -> !isPrimitiveOrWrapper(imp))
+                .filter(imp -> !imp.startsWith(currentPackage + ".") || imp.contains("$"))
                 .collect(Collectors.toSet());
     }
 
@@ -414,7 +440,6 @@ public class SourceCodeExtractor {
      * Check if a type is a primitive type or primitive wrapper.
      */
     private static boolean isPrimitiveOrWrapper(String typeName) {
-        // Check for primitive types
         Set<String> primitives = Set.of(
                 "int", "long", "short", "byte", "char", "float", "double", "boolean", "void"
         );
@@ -446,6 +471,56 @@ public class SourceCodeExtractor {
                 methodCache.size(), SpoonMethodFinder.getCacheStats());
     }
 
+    /**
+     * Scanner to find the target method invocation in the path.
+     */
+    private static class PathCallFinder extends CtScanner {
+        private final String targetMethodName;
+        private final String targetClassName;
+        CtInvocation<?> targetInvocation;
 
+        PathCallFinder(String targetMethodName, String targetClassName) {
+            this.targetMethodName = targetMethodName;
+            this.targetClassName = targetClassName;
+        }
+        @Override
+        public <T> void visitCtInvocation(CtInvocation<T> invocation) {
+            if (targetInvocation != null) {
+                return;
+            }
+            // Handle constructor calls (<init>)
+            if ("<init>".equals(targetMethodName)) {
+                if (invocation.getExecutable().getDeclaringType() != null) {
+                    String invokedClass = invocation.getExecutable().getDeclaringType().getQualifiedName();
+                    if (classNamesMatch(invokedClass, targetClassName)) {
+                        targetInvocation = invocation;
+                        return;
+                    }
+                }
+            } else {
+                // Regular method call
+                String invokedMethod = invocation.getExecutable().getSimpleName();
+                if (invokedMethod.equals(targetMethodName)) {
+                    if (invocation.getExecutable().getDeclaringType() != null) {
+                        String invokedClass = invocation.getExecutable().getDeclaringType().getQualifiedName();
+                        if (classNamesMatch(invokedClass, targetClassName)) {
+                            targetInvocation = invocation;
+                            return;
+                        }
+                    }
+                }
+            }
+            super.visitCtInvocation(invocation);
+        }
 
+        private boolean classNamesMatch(String spoonClassName, String sootClassName) {
+            if (spoonClassName.equals(sootClassName)) {
+                return true;
+            }
+            // Handle inner classes: Spoon uses '.' but Soot might use '$'
+            String normalizedSpoon = spoonClassName.replace('.', '$');
+            String normalizedSoot = sootClassName.replace('.', '$');
+            return normalizedSpoon.equals(normalizedSoot);
+        }
+    }
 }

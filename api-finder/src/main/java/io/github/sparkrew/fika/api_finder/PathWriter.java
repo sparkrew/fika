@@ -7,9 +7,7 @@ import com.google.gson.GsonBuilder;
 import io.github.sparkrew.fika.api_finder.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sootup.core.model.SootMethod;
 import sootup.core.signatures.MethodSignature;
-import sootup.java.core.JavaSootMethod;
 import sootup.java.core.views.JavaView;
 
 import java.io.File;
@@ -19,10 +17,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Handles writing analysis results in three different formats:
- * Full methods - complete implementation of all methods in paths
- * Entry point only - only the entry point body (public method under test) with path info
- * Method slices - relevant code slices for reaching third-party methods
+ * Handles writing analysis results with path tracking comments.
  */
 public class PathWriter {
 
@@ -32,9 +27,7 @@ public class PathWriter {
      * Write all three output formats from the analysis result.
      */
     public static void writeAllFormats(AnalysisResult result, String basePath, JavaView view, String sourceRootPath) {
-        // Generate the three output file paths based on the base path
         String fullMethodsPath = basePath.replace(".json", "_full_methods.json");
-        // Full methods for all methods in the path. Gives complete implementation details.
         writeFullMethodsFormat(result, fullMethodsPath, view, sourceRootPath);
     }
 
@@ -53,8 +46,8 @@ public class PathWriter {
     }
 
     /**
-     * Write paths with full method bodies for all methods
-     * This gives the complete implementation of every method in the path
+     * Write paths with full method bodies for all methods.
+     * Enhanced to add tracking comments along the path.
      */
     private static void writeFullMethodsFormat(AnalysisResult result, String outputPath, JavaView view, String sourceRootPath) {
         ObjectMapper mapper = new ObjectMapper();
@@ -62,7 +55,7 @@ public class PathWriter {
         try {
             List<FullMethodsPathData> fullMethodsPaths = new ArrayList<>();
             for (ThirdPartyPath tp : result.thirdPartyPaths()) {
-                List<String> fullMethods = extractFullMethodBodies(view, tp.path(), sourceRootPath);
+                List<String> fullMethods = extractFullMethodBodiesWithComments(view, tp.path(), sourceRootPath);
                 ClassMemberData classMembers =
                         SourceCodeExtractor.extractClassMembers(tp.entryPoint(), sourceRootPath);
                 Set<String> importsSet = SourceCodeExtractor.extractRequiredImports(
@@ -71,14 +64,12 @@ public class PathWriter {
                 Collections.sort(imports);
                 // This is for the test template generation.  This would be another prompt format if needed.
                 String testTemplate = TestTemplateGenerator.generateTestTemplate(tp, view);
-                // Count conditions in the path
                 int conditionCount = RecordCounter.countConditionsInPath(tp.path(), sourceRootPath);
                 log.debug("Path to {} has {} conditions",
                         MethodExtractor.getFilteredMethodSignature(tp.thirdPartyMethod()),
                         conditionCount);
-                // Build the path as strings
                 List<String> pathStrings = tp.path().stream()
-                        .map(MethodExtractor:: getFilteredMethodSignature)
+                        .map(MethodExtractor::getFilteredMethodSignature)
                         .collect(Collectors.toList());
                 FullMethodsPathData data = new FullMethodsPathData(
                         MethodExtractor.getFilteredMethodSignature(tp.entryPoint()),
@@ -101,7 +92,7 @@ public class PathWriter {
             // Sort paths:  primary by condition count, secondary by path length (both ascending)
             Collections.sort(fullMethodsPaths);
             log.info("Sorted {} paths by condition count and path length", fullMethodsPaths.size());
-            if (! fullMethodsPaths.isEmpty()) {
+            if (!fullMethodsPaths.isEmpty()) {
                 log.info("Simplest path has {} conditions and {} methods",
                         fullMethodsPaths.get(0).conditionCount(),
                         fullMethodsPaths.get(0).path().size());
@@ -119,70 +110,47 @@ public class PathWriter {
     }
 
     /**
-     * Extract full method bodies for all methods in a path.
-     * This gives the complete implementation of each method.
+     * Extract full method bodies with path tracking comments.
+     * Each method will have a comment indicating which call leads to the next method in the path.
      */
-    private static List<String> extractFullMethodBodies(JavaView view, List<MethodSignature> path, String sourceRootPath) {
+    private static List<String> extractFullMethodBodiesWithComments(JavaView view,
+                                                                    List<MethodSignature> path,
+                                                                    String sourceRootPath) {
         List<String> methodBodies = new ArrayList<>();
         // We do not want the bytecode of the third-party method itself
         // Comment this line if the decision is changed.
-        path.remove(path.size() - 1);
-        for (MethodSignature methodSig : path) {
-            String body = extractMethodBody(view, methodSig, sourceRootPath);
+        // Remove the last element (third-party method) from the path
+        List<MethodSignature> pathWithoutThirdParty = new ArrayList<>(path);
+        if (!pathWithoutThirdParty.isEmpty()) {
+            pathWithoutThirdParty.remove(pathWithoutThirdParty.size() - 1);
+        }
+        // Extract each method with comment pointing to the next method
+        for (int i = 0; i < pathWithoutThirdParty.size(); i++) {
+            MethodSignature currentMethod = pathWithoutThirdParty.get(i);
+            // Get the next method in the path (could be from pathWithoutThirdParty or the third-party method)
+            MethodSignature nextMethod = (i + 1 < path.size()) ? path.get(i + 1) : null;
+            String body = extractMethodBodyWithComment(view, currentMethod, nextMethod, sourceRootPath);
             methodBodies.add(body);
         }
         return methodBodies;
     }
 
     /**
-     * Extract the body of a single method.
-     * If sourceRootPath is provided, reads from actual Java source files.
-     * Otherwise, falls back to Jimple IR from the JAR.
+     * Extract the body of a single method with a tracking comment for the next method in the path.
      */
-    private static String extractMethodBody(JavaView view, MethodSignature methodSig, String sourceRootPath) {
-        // If source root is provided, try to extract from source code using Spoon
+    private static String extractMethodBodyWithComment(JavaView view,
+                                                       MethodSignature methodSig,
+                                                       MethodSignature nextMethodSig,
+                                                       String sourceRootPath) {
+        // If source root is provided, extract from source code with path tracking
         if (sourceRootPath != null) {
-            String sourceCode = SourceCodeExtractor.extractMethodFromSource(methodSig, sourceRootPath);
+            String sourceCode = SourceCodeExtractor.extractMethodFromSource(methodSig, sourceRootPath, nextMethodSig);
             if (sourceCode != null) {
                 return sourceCode;
             }
-            // If source extraction failed, fall through to Jimple extraction
-            log.debug("Could not extract source for {}, falling back to Jimple", methodSig);
+            log.debug("Could not extract source for {}, falling back to null", methodSig);
         }
-        // Fall back to Jimple IR extraction
-        // We decided to keep this bytecode fallback because we already implemented and did not want to go that effort
-        // to waste. Also, in some cases, source code may not be available (e.g., third-party methods). If we decided
-        // to add bytecode of third-party methods in the future, this would be useful.
-        // return extractMethodBodyFromJimple(view, methodSig);
-
-        // We return null now because we don't want to deal with bytecode.
+        // Return null instead of bytecode
         return null;
-    }
-
-    /**
-     * Extract method body from Jimple IR (bytecode representation).
-     * Used as fallback when source code is not available.
-     */
-    private static String extractMethodBodyFromJimple(JavaView view, MethodSignature methodSig) {
-        try {
-            Optional<JavaSootMethod> methodOpt = view.getMethod(methodSig);
-            if (methodOpt.isPresent()) {
-                SootMethod method = methodOpt.get();
-                // Get method body if available (this is the Jimple IR representation)
-                if (method.hasBody()) {
-                    return method.getBody().toString();
-                } else {
-                    // If no body available (e.g., third-party, interface, or abstract method)
-                    return "// Method body not available for: " +
-                            MethodExtractor.getFilteredMethodSignature(methodSig);
-                }
-            } else {
-                return "// Method not found in view: " +
-                        MethodExtractor.getFilteredMethodSignature(methodSig);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to extract method body for {}: {}", methodSig, e.getMessage());
-            return "// Error extracting method body: " + e.getMessage();
-        }
     }
 }
