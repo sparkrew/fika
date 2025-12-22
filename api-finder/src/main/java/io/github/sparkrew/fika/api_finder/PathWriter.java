@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import io.github.chains_project.fika.api_finder.model.*;
+import io.github.sparkrew.fika.api_finder.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sootup.core.model.SootMethod;
