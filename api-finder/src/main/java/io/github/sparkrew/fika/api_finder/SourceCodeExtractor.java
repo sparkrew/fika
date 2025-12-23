@@ -10,6 +10,7 @@ import spoon.reflect.CtModel;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtStatement;
 import spoon.reflect.declaration.CtConstructor;
+import spoon.reflect.declaration.CtElement;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
 import spoon.reflect.visitor.CtScanner;
@@ -59,13 +60,6 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Get the current source root path.
-     */
-    public static String getCurrentSourceRoot() {
-        return currentSourceRoot;
-    }
-
-    /**
      * Extract a method's source code with optional path tracking comment.
      *
      * @param methodSig      The method signature to extract
@@ -75,7 +69,7 @@ public class SourceCodeExtractor {
      */
     public static String extractMethodFromSource(MethodSignature methodSig, String sourceRootPath,
                                                  MethodSignature nextMethodSig) {
-        String cacheKey = methodSig.toString() + (nextMethodSig != null ? "|" + nextMethodSig.toString() : "");
+        String cacheKey = methodSig.toString() + (nextMethodSig != null ? "|" + nextMethodSig : "");
         if (methodCache.containsKey(cacheKey)) {
             log.trace("Method cache hit for {}", cacheKey);
             return methodCache.get(cacheKey);
@@ -115,15 +109,6 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Backward compatibility method without path tracking.
-     * Extract a regular method by name and parameter types.
-     * Handles method overloading by matching the full signature.
-     */
-    public static String extractMethodFromSource(MethodSignature methodSig, String sourceRootPath) {
-        return extractMethodFromSource(methodSig, sourceRootPath, null);
-    }
-
-    /**
      * Extract a regular method by name and parameter types and adds comments.
      * Handles method overloading by matching the full signature.
      */
@@ -156,6 +141,7 @@ public class SourceCodeExtractor {
 
     /**
      * Add a tracking comment after the method call that leads to the next method in the path.
+     * Uses string manipulation to insert an inline comment marking the path step.
      */
     private static String addPathTrackingComment(spoon.reflect.declaration.CtExecutable<?> executable,
                                                  MethodSignature nextMethodSig) {
@@ -164,15 +150,44 @@ public class SourceCodeExtractor {
         }
         String nextMethodName = nextMethodSig.getName();
         String nextClassName = nextMethodSig.getDeclClassType().getFullyQualifiedName();
+        String simpleClassName = nextClassName.substring(nextClassName.lastIndexOf('.') + 1);
         PathCallFinder finder = new PathCallFinder(nextMethodName, nextClassName);
         executable.getBody().accept(finder);
-        if (finder.targetInvocation != null) {
-            // Add inline comment after the statement containing the invocation
-            CtStatement statement = finder.targetInvocation.getParent(CtStatement.class);
-            if (statement != null) {
+        if (finder.targetInvocation == null) {
+            log.debug("Target invocation not found: {}.{} in {}",
+                    simpleClassName, nextMethodName, executable.getSignature());
+            return executable.prettyprint();
+        }
+        CtStatement statement = finder.targetInvocation.getParent(CtStatement.class);
+        if (statement != null) {
+            try {
+                // Clone the executable to avoid modifying the cached model
+                spoon.reflect.declaration.CtExecutable<?> clonedExecutable = executable.clone();
+                String methodDisplay = "<init>".equals(nextMethodName) ?
+                        "new " + simpleClassName + "(...)" :
+                        simpleClassName + "." + nextMethodName + "(...)";
+                String commentText = String.format(
+                        "PATH: Test should invoke the next %s [step in execution path]",
+                        methodDisplay
+                );
+                try {
+                    PathCallFinder clonedFinder = new PathCallFinder(nextMethodName, nextClassName);
+                    clonedExecutable.getBody().accept(clonedFinder);
+                    if (clonedFinder.targetInvocation != null) {
+                        CtStatement clonedStatement = clonedFinder.targetInvocation.getParent(CtStatement.class);
+                        if (clonedStatement != null) {
+                            clonedStatement.addComment(
+                                    executable.getFactory().Code().createInlineComment(commentText)
+                            );
+                            return clonedExecutable.prettyprint();
+                        }
+                    }
+                } catch (Exception spoonApiException) {
+                    log.trace("Spoon comment API failed, falling back to string manipulation: {}",
+                            spoonApiException.getMessage());
+                }
                 String originalCode = executable.prettyprint();
                 String statementStr = statement.toString();
-                // Find the statement in the original code and add comment after it
                 int statementPos = originalCode.indexOf(statementStr);
                 if (statementPos != -1) {
                     int endPos = statementPos + statementStr.length();
@@ -186,9 +201,12 @@ public class SourceCodeExtractor {
                     }
                     String before = originalCode.substring(0, endPos);
                     String after = originalCode.substring(endPos);
-                    String comment = " // the generated test should call this method in addition to the other methods along the path.";
+                    String comment = " // " + commentText;
                     return before + comment + after;
                 }
+            } catch (Exception e) {
+                log.warn("Failed to add tracking comment for {}: {}",
+                        nextMethodSig, e.getMessage());
             }
         }
         return executable.prettyprint();
@@ -263,7 +281,7 @@ public class SourceCodeExtractor {
                 element -> element instanceof spoon.reflect.declaration.CtConstructor
         );
         List<String> constructors = constructorElements.stream()
-                .map(c -> c.prettyprint())
+                .map(CtElement::prettyprint)
                 .collect(Collectors.toList());
         log.debug("Extracted {} constructors from {}", constructors.size(), ctType.getQualifiedName());
         return constructors;
@@ -474,6 +492,8 @@ public class SourceCodeExtractor {
 
     /**
      * Scanner to find the target method invocation in the path.
+     * Handles inheritance - matches if the invoked class is the target class
+     * OR if the target class is a subclass of the invoked class.
      */
     private static class PathCallFinder extends CtScanner {
         private final String targetMethodName;
@@ -505,7 +525,8 @@ public class SourceCodeExtractor {
                 if (invokedMethod.equals(targetMethodName)) {
                     if (invocation.getExecutable().getDeclaringType() != null) {
                         String invokedClass = invocation.getExecutable().getDeclaringType().getQualifiedName();
-                        if (classNamesMatch(invokedClass, targetClassName)) {
+                        // Match if the declaring class matches OR if target is a subclass
+                        if (classNamesMatchWithInheritance(invokedClass, targetClassName)) {
                             targetInvocation = invocation;
                             return;
                         }
@@ -513,6 +534,77 @@ public class SourceCodeExtractor {
                 }
             }
             super.visitCtInvocation(invocation);
+        }
+
+        /**
+         * Check if class names match, considering inheritance.
+         * Returns true if: The classes match exactly, or the target class is a subclass of the invoked class
+         * (inherited method)
+         */
+        private boolean classNamesMatchWithInheritance(String spoonClassName, String sootClassName) {
+            // Direct match
+            if (classNamesMatch(spoonClassName, sootClassName)) {
+                return true;
+            }
+            // Check if the target class is a subclass of the declaring class
+            // This handles cases where a method is defined in a parent class
+            // but we are tracking the call through a subclass
+            try {
+                CtType<?> targetType = findTypeCached(model, sootClassName);
+                if (targetType != null) {
+                    return isSubclassOf(targetType, spoonClassName);
+                }
+            } catch (Exception e) {
+                log.trace("Could not check inheritance for {} and {}: {}",
+                        sootClassName, spoonClassName, e.getMessage());
+            }
+
+            return false;
+        }
+
+        /**
+         * Check if the given type is a subclass of the specified parent class name.
+         * Also checks implemented interfaces.
+         */
+        private boolean isSubclassOf(CtType<?> type, String parentClassName) {
+            if (type == null) {
+                return false;
+            }
+            // Check direct superclass
+            if (type.getSuperclass() != null) {
+                String superClassName = type.getSuperclass().getQualifiedName();
+                if (classNamesMatch(superClassName, parentClassName)) {
+                    return true;
+                }
+                // Recursively check parent classes
+                try {
+                    CtType<?> superType = findTypeCached(model, superClassName);
+                    if (isSubclassOf(superType, parentClassName)) {
+                        return true;
+                    }
+                } catch (Exception e) {
+                    log.trace("Could not resolve superclass {}: {}", superClassName, e.getMessage());
+                }
+            }
+            // Sometimes, it is an interface. Check implemented interfaces (including inherited interfaces)
+            Set<spoon.reflect.reference.CtTypeReference<?>> interfaces = type.getSuperInterfaces();
+            for (spoon.reflect.reference.CtTypeReference<?> interfaceRef : interfaces) {
+                if (interfaceRef == null) continue;
+                String interfaceName = interfaceRef.getQualifiedName();
+                if (classNamesMatch(interfaceName, parentClassName)) {
+                    return true;
+                }
+                // Recursively check parent interfaces
+                try {
+                    CtType<?> interfaceType = findTypeCached(model, interfaceName);
+                    if (isSubclassOf(interfaceType, parentClassName)) {
+                        return true;
+                    }
+                } catch (Exception e) {
+                    log.trace("Could not resolve interface {}: {}", interfaceName, e.getMessage());
+                }
+            }
+            return false;
         }
 
         private boolean classNamesMatch(String spoonClassName, String sootClassName) {
