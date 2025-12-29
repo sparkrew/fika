@@ -8,7 +8,8 @@ import io.github.sparkrew.fika.api_finder.utils.PackageMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sootup.callgraph.CallGraph;
-import sootup.callgraph.RapidTypeAnalysisAlgorithm;
+import sootup.callgraph.CallGraphAlgorithm;
+import sootup.callgraph.ClassHierarchyAnalysisAlgorithm;
 import sootup.core.inputlocation.AnalysisInputLocation;
 import sootup.core.model.SootMethod;
 import sootup.core.signatures.MethodSignature;
@@ -72,7 +73,7 @@ public class MethodExtractor {
         List<ThirdPartyPath> thirdPartyPaths = new ArrayList<>();
         List<PathStats> allPathStats = new ArrayList<>();
         try {
-            RapidTypeAnalysisAlgorithm cha = new RapidTypeAnalysisAlgorithm(view);
+            CallGraphAlgorithm cha = new ClassHierarchyAnalysisAlgorithm(view);
             CallGraph cg = cha.initialize(new ArrayList<>(entryPoints));
             // Identify all third-party methods that are actually called in the codebase. We go backwards from
             // third-party methods to public methods to find all paths. This is because we expect this would be more
