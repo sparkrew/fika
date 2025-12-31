@@ -47,14 +47,19 @@ class CoverageFilterTest {
         Files.createDirectories(packageDir);
     }
 
-    void setUpWithStubs() {
+    @AfterEach
+    void tearDown() {
+        CoverageFilter.clearCache();
+    }
+    
+    private void setupFullMocks() {
         testMethod = createMethodSignature("com.example.TestClass", "testMethod");
         thirdPartyMethod = createMethodSignature("org.apache.http.HttpClient", "execute");
     }
 
-    @AfterEach
-    void tearDown() {
-        CoverageFilter.clearCache();
+    private void setupMinimalMocks() {
+        testMethod = createMethodSignature2("com.example.TestClass");
+        thirdPartyMethod = createMethodSignature2("org.apache.http.HttpClient");
     }
 
     private MethodSignature createMethodSignature(String className, String methodName) {
@@ -63,15 +68,34 @@ class CoverageFilterTest {
         when(method.getDeclClassType()).thenReturn(classType);
         when(classType.getFullyQualifiedName()).thenReturn(className);
         when(method.getName()).thenReturn(methodName);
-//        when(method.getParameterTypes()).thenReturn(paramTypes);
-//        when(method.getType()).thenReturn(returnType);
-//        when(method.toString()).thenReturn(className + "." + methodName + "()");
         return method;
+    }
+
+    private MethodSignature createMethodSignature2(String className) {
+        MethodSignature method = mock(MethodSignature.class);
+        ClassType classType = mock(ClassType.class);
+        when(method.getDeclClassType()).thenReturn(classType);
+        when(classType.getFullyQualifiedName()).thenReturn(className);
+        return method;
+    }
+    
+    private Path createPackageDirectory(String... packageParts) throws IOException {
+        Path packageDir = jacocoDir;
+        for (String part : packageParts) {
+            packageDir = packageDir.resolve(part);
+        }
+        Files.createDirectories(packageDir);
+        return packageDir;
+    }
+    
+    private void writeHtmlFile(Path packageDir, String className, String content) throws IOException {
+        Path htmlFile = packageDir.resolve(className + ".java.html");
+        Files.writeString(htmlFile, content);
     }
 
     @Test
     void testClearCache_ClearsAllCaches() {
-        setUpWithStubs();
+        setupMinimalMocks();
         CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         CoverageFilter.clearCache();
@@ -80,7 +104,7 @@ class CoverageFilterTest {
 
     @Test
     void testRegisterTargetCall_SingleCall() {
-        setUpWithStubs();
+        setupMinimalMocks();
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         assertDoesNotThrow(() ->
                 CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs)
@@ -89,7 +113,7 @@ class CoverageFilterTest {
 
     @Test
     void testRegisterTargetCall_MultipleCalls() {
-        setUpWithStubs();
+        setupMinimalMocks();
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         assertDoesNotThrow(() ->
@@ -99,17 +123,15 @@ class CoverageFilterTest {
 
     @Test
     void testIsAlreadyCoveredByTests_NoHtmlFile() {
-        setUpWithStubs();
+        setupMinimalMocks();
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         assertFalse(result, "Should return false when HTML file doesn't exist");
     }
 
     @Test
     void testIsAlreadyCoveredByTests_WithCoveredMethod() throws IOException {
-        setUpWithStubs();
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        setupFullMocks();
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -120,17 +142,15 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         assertTrue(result, "Should detect covered method call");
     }
 
     @Test
     void testIsAlreadyCoveredByTests_WithoutCoveredMethod() throws IOException {
-        setUpWithStubs();
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        setupFullMocks();
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -140,17 +160,15 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         assertFalse(result, "Should return false when target method is not called");
     }
 
     @Test
     void testIsAlreadyCoveredByTests_WithNotCoveredLines() throws IOException {
-        setUpWithStubs();
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        setupFullMocks();
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -160,7 +178,7 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         assertFalse(result, "Should return false when target call is not covered (nc class)");
     }
@@ -172,9 +190,7 @@ class CoverageFilterTest {
                 "org.apache.http.HttpClient",
                 "<init>"
         );
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -184,18 +200,16 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, constructorMethod, jacocoHtmlDirs);
         assertTrue(result, "Constructor call should be detected as covered");
     }
 
     void testIsAlreadyCoveredByTests_WithXmlReport() throws IOException {
-        setUpWithStubs();
+        setupFullMocks();
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -205,7 +219,7 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         Path xmlFile = jacocoDir.resolve("jacoco.xml");
         String xmlContent = """
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -229,10 +243,8 @@ class CoverageFilterTest {
 
     @Test
     void testIsAlreadyCoveredByTests_CacheHit() throws IOException {
-        setUpWithStubs();
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        setupFullMocks();
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -242,7 +254,7 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         boolean result1 = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         boolean result2 = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         assertTrue(result1, "First call should find coverage");
@@ -251,7 +263,7 @@ class CoverageFilterTest {
 
     @Test
     void testIsAlreadyCoveredByTests_EmptyJacocoDirectories() throws IOException {
-        setUpWithStubs();
+        setupMinimalMocks();
         List<File> emptyDirs = new ArrayList<>();
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, emptyDirs);
         assertFalse(result, "Should return false when no JaCoCo directories provided");
@@ -259,10 +271,8 @@ class CoverageFilterTest {
 
     @Test
     void testIsAlreadyCoveredByTests_WithPartiallyCoveredMethod() throws IOException {
-        setUpWithStubs();
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        setupFullMocks();
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -272,7 +282,7 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
         assertTrue(result, "Should detect partially covered method (fc bfc) as covered");
     }
@@ -280,16 +290,13 @@ class CoverageFilterTest {
     @Test
     void testIsAlreadyCoveredByTests_WithMethodParameters() throws IOException {
         testMethod = createMethodSignature("com.example.TestClass", "testMethod");
-        // Given - method with parameters
         List<sootup.core.types.Type> paramTypes = new ArrayList<>();
         paramTypes.add(PrimitiveType.getInt());
         MethodSignature methodWithParams = createMethodSignature(
                 "org.apache.http.HttpClient",
                 "execute"
         );
-        Path packageDir = jacocoDir.resolve("com.example");
-        Files.createDirectories(packageDir);
-        Path htmlFile = packageDir.resolve("TestClass.java.html");
+        Path packageDir = createPackageDirectory("com.example");
         String htmlContent = """
                 <html>
                 <body>
@@ -299,7 +306,7 @@ class CoverageFilterTest {
                 </body>
                 </html>
                 """;
-        Files.writeString(htmlFile, htmlContent);
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, methodWithParams, jacocoHtmlDirs);
         assertTrue(result, "Should detect method call with parameters");
     }
