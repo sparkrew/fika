@@ -32,6 +32,8 @@
         <jackson.version>2.18.0</jackson.version>
         <jsoup.version>1.21.2</jsoup.version>
         <spoon.version>11.2.1</spoon.version>
+        <mockito.version>5.8.0</mockito.version>
+        <junit.version>5.10.1</junit.version>
         <maven.compiler.plugin.version>3.8.1</maven.compiler.plugin.version>
         <maven.core.version>3.2.5</maven.core.version>
         <maven.plugin.plugin.version>3.9.0</maven.plugin.plugin.version>
