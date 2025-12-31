@@ -98,11 +98,11 @@ public class CoverageFilter {
                 coverageCache.computeIfAbsent(htmlFilePath, k -> new ConcurrentHashMap<>())
                         .put(cacheKey, isCovered);
                 if (isCovered) {
-                    CoverageLogger.logCoverage(thirdPartyMethodFull, true);
+//                    CoverageLogger.logCoverage(thirdPartyMethodFull, true);
                     return true;
                 }
             }
-            CoverageLogger.logCoverage(thirdPartyMethodFull, false);
+//            CoverageLogger.logCoverage(thirdPartyMethodFull, false);
             return false;
         } catch (Exception e) {
             log.error("Error checking coverage for method: {}", method.getName(), e);
