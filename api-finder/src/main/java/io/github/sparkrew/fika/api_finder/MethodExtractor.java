@@ -21,7 +21,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static io.github.sparkrew.fika.api_finder.CoverageFilter.isAlreadyCoveredByTests;
 import static io.github.sparkrew.fika.api_finder.PathWriter.writePathStatsToJson;
 
 public class MethodExtractor {
@@ -44,7 +43,7 @@ public class MethodExtractor {
                                Path packageMapPath, String sourceRootPath, List<File> jacocoHtmlDirs) {
         // Start reading the jar with sootup. Here we use all the public methods as the entry points.
         // That means we don't plan to do anything (generate tests etc) for private methods.
-        // Don't want any more complications with reflections and all. What we are doing is complicated enough.
+        // Don't want any more complications with reflections and all.
         ignoredPrefixes = PackageMatcher.loadIgnoredPrefixes(packageName);
         JavaView view = createJavaView(pathToJar);
         Set<MethodSignature> entryPoints = detectEntryPoints(view, packageName);
@@ -79,16 +78,22 @@ public class MethodExtractor {
             // third-party methods to public methods to find all paths. This is because we expect this would be more
             // efficient than doing it the other way round, as there are usually much fewer third-party methods than
             // public methods.
-            Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs = findAllThirdPartyMethodPairs(cg, packageMapPath, jacocoHtmlDirs);
+            Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs =
+                    findAllThirdPartyMethodPairs(cg, packageMapPath, jacocoHtmlDirs);
             log.info("Found {} third-party method call pairs in call graph", thirdPartyPairs.size());
             // Build reverse call graph for efficient backward traversal. Otherwise, it takes painfully long time to
             // run with the forward graph (from public methods to third party methods).
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph = buildReverseCallGraph(cg);
             // For each third-party method, find all public methods that can reach it
             for (Map.Entry<MethodSignature, MethodSignature> pair : thirdPartyPairs) {
+                // To understand what this callCount is, refer to the comment in ThirdPartyPath record.
+                Integer callCount = 1;
                 MethodSignature directCaller = pair.getKey();
                 MethodSignature thirdPartyMethod = pair.getValue();
                 // Find all methods that can reach this third-party method by traversing backwards
+                // Here we use the direct caller of the third-party method instead of the third party method itself,
+                // because we care about all call sites. If we start from the third party method, we may miss some
+                // call sites, when the same third party method is there in multiple call sites.
                 Set<MethodSignature> reachingMethods = findReachingMethods(
                         reverseCallGraph,
                         directCaller,
@@ -101,7 +106,7 @@ public class MethodExtractor {
                     if (entryPoints.contains(publicMethod)) {
                         // Here, we look for the shortest path from the public method to the third-party method.
                         // We do that because otherwise the number of paths tend to explode.
-                        // Now, we have one path per source (public method) & target (third-party method) pair.
+                        // Now, we have one path per source (public method) & target (direct caller method) pair.
                         // This is good for our test generation goal because we generate tests for the public method
                         // in order to reach the third-party method. It is important to note that, we still collect
                         // multiple paths to reach a third party method, as long as they originate from different public
@@ -120,7 +125,8 @@ public class MethodExtractor {
                             ThirdPartyPath tpPath = new ThirdPartyPath(
                                     publicMethod,
                                     thirdPartyMethod,
-                                    path
+                                    path,
+                                    callCount  // Comment this line to disable call count
                             );
                             thirdPartyPaths.add(tpPath);
                         }
@@ -155,13 +161,28 @@ public class MethodExtractor {
      */
     private static Set<Map.Entry<MethodSignature, MethodSignature>> findAllThirdPartyMethodPairs(
             CallGraph cg, Path packageMapPath, List<File> jacocoHtmlDirs) {
+        // We do two iterations because we get coverage check in two steps. First, we register all to check if
+        // the same class has multiple calls to the same third party method.
+        for (MethodSignature method : cg.getMethodSignatures()) {
+            String fullClassName = method.getDeclClassType().getFullyQualifiedName();
+            for (CallGraph.Call call : cg.callsFrom(method)) {
+                MethodSignature target = call.getTargetMethodSignature();
+                if (isThirdPartyMethod(target, packageMapPath)) {
+                    String thirdPartyMethod = target.getDeclClassType().getFullyQualifiedName() + "."
+                            + target.getName();
+                    CoverageFilter.registerTargetCall(fullClassName, thirdPartyMethod);
+                }
+            }
+        }
+        // If a class only has one unique call to a third party method, we get coverage in the simple way by only
+        // analysing the html files. If it has multiple calls to the same third party method, we need to analyze the
+        // xml files.
         Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs = new HashSet<>();
-        // Iterate through all calls in the call graph
         for (MethodSignature method : cg.getMethodSignatures()) {
             for (CallGraph.Call call : cg.callsFrom(method)) {
                 MethodSignature target = call.getTargetMethodSignature();
                 if (isThirdPartyMethod(target, packageMapPath)) {
-                    if (isAlreadyCoveredByTests(method, target, jacocoHtmlDirs)) {
+                    if (CoverageFilter.isAlreadyCoveredByTests(method, target, jacocoHtmlDirs)) {
                         continue;
                     }
                     thirdPartyPairs.add(Map.entry(method, target));

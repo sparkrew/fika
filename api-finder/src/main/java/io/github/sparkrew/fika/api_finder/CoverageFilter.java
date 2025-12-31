@@ -7,13 +7,14 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.w3c.dom.NodeList;
 import sootup.core.signatures.MethodSignature;
 import sootup.core.types.Type;
 
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.File;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -22,20 +23,28 @@ public class CoverageFilter {
     private static final Logger log = LoggerFactory.getLogger(CoverageFilter.class);
     // Cache - Map<htmlFilePath, Map<thirdPartyMethod, isCovered>>
     private static final Map<String, Map<String, Boolean>> coverageCache = new ConcurrentHashMap<>();
-    // Cache for parsed HTML documents: Map<htmlFilePath, Set<coveredMethods>>
-    private static final Map<String, Set<String>> parsedHtmlCache = new ConcurrentHashMap<>();
+    // Cache for parsed HTML documents: Map<htmlFilePath, Map<targetMethod, Set<lineNumbers>>>
+    private static final Map<String, Map<String, Set<Integer>>> htmlLineCache = new ConcurrentHashMap<>();
+    // Cache for XML method coverage: Map<xmlFilePath, Map<methodSig, Set<coveredLineNumbers>>>
+    private static final Map<String, Map<String, Set<Integer>>> xmlCoverageCache = new ConcurrentHashMap<>();
+    // Cache to track if a class has multiple calls to same target: Map<className, Map<targetMethod, count>>
+    private static final Map<String, Map<String, Integer>> targetCallCountCache = new ConcurrentHashMap<>();
 
     /**
-     * Clears the coverage cache. Call this if you want to force re-parsing of HTML files.
+     * Clears all caches.
      */
     public static void clearCache() {
         coverageCache.clear();
-        parsedHtmlCache.clear();
-        log.debug("Coverage cache cleared");
+        htmlLineCache.clear();
+        xmlCoverageCache.clear();
+        targetCallCountCache.clear();
+        log.debug("All coverage caches cleared");
     }
 
     /**
-     * Checks if a given method is covered by tests using JaCoCo HTML reports.
+     * Checks if a given method is covered by tests using JaCoCo reports.
+     * Uses HTML to find line numbers where target is called, then uses XML to check
+     * if those specific lines are covered in the given method.
      *
      * @param method         The method signature to check for coverage
      * @param target         The target third-party method signature
@@ -45,7 +54,6 @@ public class CoverageFilter {
     public static boolean isAlreadyCoveredByTests(MethodSignature method, MethodSignature target,
                                                   List<File> jacocoHtmlDirs) {
         try {
-            // Extract class and method information from the method signature
             String fullClassName = method.getDeclClassType().getFullyQualifiedName();
             String simpleClassName = fullClassName.substring(fullClassName.lastIndexOf('.') + 1);
             String packageName = fullClassName.substring(0, fullClassName.lastIndexOf('.'));
@@ -56,27 +64,39 @@ public class CoverageFilter {
                     + "(" + target.getParameterTypes().stream()
                     .map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
-            // Search through all JaCoCo report directories
+            // Check if this class has multiple calls to the same target
+            boolean needsPreciseCheck = hasMultipleTargetCalls(fullClassName, thirdPartyMethod);
             for (File dir : jacocoHtmlDirs) {
                 File htmlFile = dir.toPath()
                         .resolve(packageName)
                         .resolve(simpleClassName + ".java.html")
                         .toFile();
+
                 if (!htmlFile.exists()) {
                     continue;
                 }
                 String htmlFilePath = htmlFile.getAbsolutePath();
+                String cacheKey = htmlFilePath + "|" + method.getName() + "|" + thirdPartyMethod;
                 // Check cache first
                 Map<String, Boolean> fileCache = coverageCache.get(htmlFilePath);
-                if (fileCache != null && fileCache.containsKey(thirdPartyMethod)) {
-                    log.debug("Cache hit for {} in {}", thirdPartyMethod, htmlFilePath);
-                    return fileCache.get(thirdPartyMethod);
+                if (fileCache != null && fileCache.containsKey(cacheKey)) {
+                    log.debug("Cache hit for {} in method {}", thirdPartyMethod, method.getName());
+                    return fileCache.get(cacheKey);
                 }
-                // Not in cache, need to check
-                boolean isCovered = isMethodCovered(htmlFile, thirdPartyMethod);
-                // Store in cache
+                boolean isCovered;
+                // We do this check because if we only use the HTML files, when there are multiple calls to the same
+                // third party method within one class, we cannot determine whether the actual target we are looking
+                // for is covered.
+                if (needsPreciseCheck) {
+                    log.debug("Multiple calls detected, using precise XML checking for {} in method {} in class {}",
+                            thirdPartyMethod, method.getName(), method.getDeclClassType().getFullyQualifiedName());
+                    isCovered = isPreciseMethodCovered(htmlFile, dir, method, target, thirdPartyMethod);
+                } else {
+                    // Quick HTML check is sufficient (only one call in entire class)
+                    isCovered = isMethodCoveredInClass(htmlFile, thirdPartyMethod);
+                }
                 coverageCache.computeIfAbsent(htmlFilePath, k -> new ConcurrentHashMap<>())
-                        .put(thirdPartyMethod, isCovered);
+                        .put(cacheKey, isCovered);
                 if (isCovered) {
                     CoverageLogger.logCoverage(thirdPartyMethodFull, true);
                     return true;
@@ -91,62 +111,350 @@ public class CoverageFilter {
     }
 
     /**
-     * Parses the JaCoCo HTML report to determine if a method is covered.
-     *
-     * @param htmlFile       The JaCoCo HTML file for the class
-     * @param thirdPartyMethod     The method name to check
-     * @return true if the method is covered (fully or partially), false otherwise
-     * @throws Exception if parsing fails
+     * Check if a class has multiple calls to the same target method.
+     * This helps determine if we need precise XML checking.
      */
-    private static boolean isMethodCovered(File htmlFile, String thirdPartyMethod) throws Exception {
+    private static boolean hasMultipleTargetCalls(String fullClassName, String thirdPartyMethod) {
+        Map<String, Integer> classTargets = targetCallCountCache.get(fullClassName);
+        if (classTargets != null) {
+            Integer count = classTargets.get(thirdPartyMethod);
+            return count != null && count > 1;
+        }
+        return false;
+    }
+
+    /**
+     * Register that a class calls a specific target method.
+     * Call this in a first pass before checking coverage to enable smart caching.
+     * This allows the filter to use quick HTML checks when there's only one call,
+     * and precise XML checks when there are multiple calls to the same target in a class.
+     */
+    public static void registerTargetCall(String fullClassName, String thirdPartyMethod) {
+        targetCallCountCache.computeIfAbsent(fullClassName, k -> new ConcurrentHashMap<>())
+                .merge(thirdPartyMethod, 1, Integer::sum);
+    }
+
+    /**
+     * Performs precise coverage checking using HTML + XML reports.
+     * Gets line numbers from HTML where the target method is called and gets covered line numbers from XML for
+     * the specific method. Then, checks if there's any intersection.
+     */
+    private static boolean isPreciseMethodCovered(File htmlFile, File jacocoDir,
+                                                  MethodSignature method, MethodSignature target,
+                                                  String thirdPartyMethod) throws Exception {
+        // Get line numbers where target is called (from HTML)
+        Set<Integer> targetCallLines = getTargetCallLines(htmlFile, target);
+        if (targetCallLines.isEmpty()) {
+            log.debug("No lines found calling target {} in HTML", thirdPartyMethod);
+            return false;
+        }
+        log.debug("Target {} called on lines: {}", thirdPartyMethod, targetCallLines);
+        // Find and parse XML report. The XML file does not have actual code lines, only line numbers. That's why we
+        // need to cross-reference with HTML.
+        File xmlFile = findXmlReport(jacocoDir);
+        if (xmlFile == null || !xmlFile.exists()) {
+            log.warn("XML report not found in {}, cannot perform precise check", jacocoDir);
+            return false;
+        }
+        String fullClassName = method.getDeclClassType().getFullyQualifiedName();
+        String methodName = method.getName();
+        String methodDesc = buildMethodDescriptor(method);
+        // Get covered lines for our specific method (from XML)
+        Set<Integer> coveredLinesInMethod = getCoveredLinesForMethod(xmlFile, fullClassName, methodName, methodDesc);
+        if (coveredLinesInMethod.isEmpty()) {
+            log.debug("No covered lines found for method {} in XML", method.getName());
+            return false;
+        }
+        log.debug("Method {} has covered lines: {}", method.getName(), coveredLinesInMethod);
+        // Check intersection - is the target called on any covered line in this method?
+        Set<Integer> intersection = new HashSet<>(targetCallLines);
+        intersection.retainAll(coveredLinesInMethod);
+        if (!intersection.isEmpty()) {
+            log.debug("Target {} is covered in method {} on lines: {}",
+                    thirdPartyMethod, method.getName(), intersection);
+            return true;
+        }
+        log.debug("No intersection between target call lines and covered lines in method {}", method.getName());
+        return false;
+    }
+
+    /**
+     * Extracts line numbers from HTML where the target method is called.
+     * This parses the HTML to find which line numbers contain calls to the target.
+     */
+    private static Set<Integer> getTargetCallLines(File htmlFile, MethodSignature target) throws Exception {
         String htmlFilePath = htmlFile.getAbsolutePath();
-        // Check if we've already parsed this HTML file
-        Set<String> coveredMethods = parsedHtmlCache.get(htmlFilePath);
-        if (coveredMethods == null) {
-            // Parse the HTML file and extract all covered methods
-            coveredMethods = ConcurrentHashMap.newKeySet();
-            Document doc = Jsoup.parse(htmlFile);
-            Elements spans = doc.select("span[id^=L]");
-            /* We parse the HTML file using Jsoup. The way to identify covered method is to check the span class.
-             * It is either "fc" (fully covered) or "fc bfc" (partially covered), or "nc" (not covered).
-             * Then, we also have to consider <init> (constructors) and <clinit> (static initializers). They won't appear
-             * with <init> or <clinit> in the class html file. */
-            for (Element span : spans) {
-                String codeLine = span.text();
-                String clazz = span.className();
-                // Only process covered lines
-                if (clazz.contains("fc")) {
-                    // Store the entire covered line for later pattern matching
-                    coveredMethods.add(codeLine);
+        String targetKey = target.getDeclClassType().getFullyQualifiedName() + "." + target.getName();
+        Map<String, Set<Integer>> fileCache = htmlLineCache.get(htmlFilePath);
+        if (fileCache != null && fileCache.containsKey(targetKey)) {
+            return fileCache.get(targetKey);
+        }
+        Set<Integer> lineNumbers = new HashSet<>();
+        Document doc = Jsoup.parse(htmlFile);
+        String targetClassName = target.getDeclClassType().getFullyQualifiedName();
+        String shortClassName = targetClassName.substring(targetClassName.lastIndexOf('.') + 1);
+        String methodName = target.getName();
+        Elements spans = doc.select("span[id^=L]");
+        for (Element span : spans) {
+            String lineId = span.attr("id");
+            String codeLine = span.text();
+            boolean containsTarget = false;
+            if ("<init>".equals(methodName)) {
+                containsTarget = codeLine.contains("new " + shortClassName + "(");
+            } else if ("<clinit>".equals(methodName)) {
+                containsTarget = codeLine.contains(shortClassName);
+            } else {
+                containsTarget = codeLine.contains(methodName + "(");
+            }
+            if (containsTarget) {
+                // Extract line number from id. ID is in the format "L123". We have to parse it to get 123.
+                try {
+                    int lineNum = Integer.parseInt(lineId.substring(1));
+                    lineNumbers.add(lineNum);
+                } catch (NumberFormatException e) {
+                    log.warn("Could not parse line number from id: {}", lineId);
                 }
             }
-            // Cache the parsed results
-            parsedHtmlCache.put(htmlFilePath, coveredMethods);
-            log.debug("Cached {} covered method calls from {}", coveredMethods.size(), htmlFilePath);
         }
-        // Now check if our specific third-party method is in the covered set
+        htmlLineCache.computeIfAbsent(htmlFilePath, k -> new ConcurrentHashMap<>())
+                .put(targetKey, lineNumbers);
+        return lineNumbers;
+    }
+
+    /**
+     * Parses JaCoCo XML report to extract covered line numbers for a specific method.
+     */
+    private static Set<Integer> getCoveredLinesForMethod(File xmlFile, String fullClassName,
+                                                         String methodName, String methodDesc) throws Exception {
+        String cacheKey = xmlFile.getAbsolutePath();
+        String methodKey = fullClassName + "." + methodName + methodDesc;
+        Map<String, Set<Integer>> fileCache = xmlCoverageCache.get(cacheKey);
+        if (fileCache != null && fileCache.containsKey(methodKey)) {
+            return fileCache.get(methodKey);
+        }
+        // We remove DTD validation to avoid errors.
+        Set<Integer> coveredLines = new HashSet<>();
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setValidating(false);
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        org.w3c.dom.Document doc = builder.parse(xmlFile);
+        // Find the package that contains our class
+        String xmlClassName = fullClassName.replace('.', '/');
+        NodeList packages = doc.getElementsByTagName("package");
+        for (int i = 0; i < packages.getLength(); i++) {
+            org.w3c.dom.Element pkg = (org.w3c.dom.Element) packages.item(i);
+            NodeList classes = pkg.getElementsByTagName("class");
+            org.w3c.dom.Element targetClass = null;
+            String sourceFileName = null;
+            for (int j = 0; j < classes.getLength(); j++) {
+                org.w3c.dom.Element clazz = (org.w3c.dom.Element) classes.item(j);
+                String className = clazz.getAttribute("name");
+                if (className.equals(xmlClassName)) {
+                    targetClass = clazz;
+                    sourceFileName = clazz.getAttribute("sourcefilename");
+                    break;
+                }
+            }
+            if (targetClass == null) {
+                continue;
+            }
+            Integer methodStartLine = null;
+            Integer methodEndLine = null;
+            NodeList methods = targetClass.getElementsByTagName("method");
+            List<Integer> allMethodStarts = new ArrayList<>();
+            for (int k = 0; k < methods.getLength(); k++) {
+                org.w3c.dom.Element methodElem = (org.w3c.dom.Element) methods.item(k);
+                String lineAttr = methodElem.getAttribute("line");
+                if (!lineAttr.isEmpty()) {
+                    allMethodStarts.add(Integer.parseInt(lineAttr));
+                }
+            }
+            // Sort to find method boundaries
+            Collections.sort(allMethodStarts);
+            for (int k = 0; k < methods.getLength(); k++) {
+                org.w3c.dom.Element methodElem = (org.w3c.dom.Element) methods.item(k);
+                String xmlMethodName = methodElem.getAttribute("name");
+                String xmlMethodDesc = methodElem.getAttribute("desc");
+                if (xmlMethodName.equals(methodName) && xmlMethodDesc.equals(methodDesc)) {
+                    String lineAttr = methodElem.getAttribute("line");
+                    if (!lineAttr.isEmpty()) {
+                        methodStartLine = Integer.parseInt(lineAttr);
+                        // Find the next method start line to determine end boundary
+                        for (int m = 0; m < allMethodStarts.size(); m++) {
+                            if (allMethodStarts.get(m).equals(methodStartLine)) {
+                                if (m + 1 < allMethodStarts.size()) {
+                                    methodEndLine = allMethodStarts.get(m + 1) - 1;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            if (methodStartLine == null) {
+                log.warn("Could not find start line for method {}", methodKey);
+                continue;
+            }
+            // Now we find the matching sourcefile element. Source element is a sibling to class elements.
+            NodeList sourcefiles = pkg.getElementsByTagName("sourcefile");
+            org.w3c.dom.Element targetSourceFile = null;
+            for (int j = 0; j < sourcefiles.getLength(); j++) {
+                org.w3c.dom.Element sourcefile = (org.w3c.dom.Element) sourcefiles.item(j);
+                String sfName = sourcefile.getAttribute("name");
+
+                if (sfName.equals(sourceFileName)) {
+                    targetSourceFile = sourcefile;
+                    break;
+                }
+            }
+            if (targetSourceFile == null) {
+                log.warn("Could not find sourcefile {} for class {}", sourceFileName, fullClassName);
+                continue;
+            }
+            // Parse the sourcefile for covered lines within method boundaries
+            NodeList lines = targetSourceFile.getElementsByTagName("line");
+            for (int l = 0; l < lines.getLength(); l++) {
+                org.w3c.dom.Element line = (org.w3c.dom.Element) lines.item(l);
+                int lineNum = Integer.parseInt(line.getAttribute("nr"));
+                int coveredInstructions = Integer.parseInt(line.getAttribute("ci"));
+                // Check if line is covered and within method bounds
+                if (coveredInstructions > 0) {
+                    if (methodEndLine != null) {
+                        if (lineNum >= methodStartLine && lineNum <= methodEndLine) {
+                            coveredLines.add(lineNum);
+                        }
+                    } else {
+                        // No end line found, include all lines after start
+                        // This happens for the last method in the class
+                        if (lineNum >= methodStartLine) {
+                            coveredLines.add(lineNum);
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        xmlCoverageCache.computeIfAbsent(cacheKey, k -> new ConcurrentHashMap<>())
+                .put(methodKey, coveredLines);
+        log.debug("Found {} covered lines for method {})",
+                coveredLines.toArray(), methodKey);
+        return coveredLines;
+    }
+
+    /**
+     * Builds a JVM method descriptor from a MethodSignature.
+     * Example: (Ljava/lang/String;I)V
+     */
+    private static String buildMethodDescriptor(MethodSignature method) {
+        StringBuilder desc = new StringBuilder("(");
+
+        for (Type paramType : method.getParameterTypes()) {
+            desc.append(typeToDescriptor(paramType));
+        }
+        desc.append(")");
+        desc.append(typeToDescriptor(method.getType()));
+        return desc.toString();
+    }
+
+    /**
+     * Converts a Type to JVM type descriptor format.
+     */
+    private static String typeToDescriptor(Type type) {
+        String typeName = type.toString();
+        int arrayDimensions = 0;
+        String baseTypeName = typeName;
+        while (baseTypeName.endsWith("[]")) {
+            arrayDimensions++;
+            baseTypeName = baseTypeName.substring(0, baseTypeName.length() - 2);
+        }
+        StringBuilder result = new StringBuilder();
+        result.append("[".repeat(Math.max(0, arrayDimensions)));
+        switch (baseTypeName) {
+            case "byte" -> {
+                result.append("B");
+                return result.toString();
+            }
+            case "char" -> {
+                result.append("C");
+                return result.toString();
+            }
+            case "double" -> {
+                result.append("D");
+                return result.toString();
+            }
+            case "float" -> {
+                result.append("F");
+                return result.toString();
+            }
+            case "int" -> {
+                result.append("I");
+                return result.toString();
+            }
+            case "long" -> {
+                result.append("J");
+                return result.toString();
+            }
+            case "short" -> {
+                result.append("S");
+                return result.toString();
+            }
+            case "boolean" -> {
+                result.append("Z");
+                return result.toString();
+            }
+            case "void" -> {
+                result.append("V");
+                return result.toString();
+            }
+        }
+        result.append("L").append(baseTypeName.replace('.', '/')).append(";");
+        return result.toString();
+    }
+
+    /**
+     * Finds the JaCoCo XML report file in the given directory.
+     */
+    private static File findXmlReport(File jacocoDir) {
+        // Unlike HTML, the XML report has a fixed name: jacoco.xml and there is only one in the root folder.
+        File xmlFile = new File(jacocoDir, "jacoco.xml");
+        if (xmlFile.exists()) {
+            return xmlFile;
+        }
+        log.warn("XML report not found in: " + jacocoDir.getAbsolutePath());
+        return null;
+    }
+
+    /**
+     * Quick check: is the target method covered anywhere in the class?
+     * Used when there's only one call to the target in the entire class.
+     */
+    private static boolean isMethodCoveredInClass(File htmlFile, String thirdPartyMethod) throws Exception {
         String className = thirdPartyMethod.substring(0, thirdPartyMethod.lastIndexOf('.'));
         String shortClassName = className.substring(className.lastIndexOf('.') + 1);
         String methodName = thirdPartyMethod.substring(thirdPartyMethod.lastIndexOf('.') + 1);
-        // Check for exact match or pattern match
-        for (String codeLine : coveredMethods) {
-            // For Constructor <init>
-            if ("<init>".equals(methodName)) {
-                if (codeLine.contains("new " + shortClassName + "(")) {
-                    return true;
-                }
-            }
-            // For Static initializer <clinit>
-            else if ("<clinit>".equals(methodName)) {
-                // Look for any covered line mentioning the class name
-                if (codeLine.contains(shortClassName)) {
-                    return true;
-                }
-            }
-            // For Normal method
-            else {
-                if (codeLine.contains(methodName)) {
-                    return true;
+        Document doc = Jsoup.parse(htmlFile);
+        Elements spans = doc.select("span[id^=L]");
+        for (Element span : spans) {
+            String codeLine = span.text();
+            String clazz = span.className();
+            // Only process covered lines. fc means fully covered.
+            if (clazz.contains("fc")) {
+                if ("<init>".equals(methodName)) {
+                    if (codeLine.contains("new " + shortClassName + "(")) {
+                        return true;
+                    }
+                } else if ("<clinit>".equals(methodName)) {
+                    if (codeLine.contains(shortClassName)) {
+                        return true;
+                    }
+                } else {
+                    if (codeLine.contains(methodName + "(")) {
+                        return true;
+                    }
                 }
             }
         }

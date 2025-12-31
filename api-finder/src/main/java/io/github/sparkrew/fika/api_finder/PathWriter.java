@@ -80,7 +80,8 @@ public class PathWriter {
                         classMembers.getters(),
                         imports,
                         testTemplate,
-                        conditionCount
+                        conditionCount,
+                        tp.callCount()
                 );
                 // We don't want a record without any source code extracted. This could happen when the source code
                 // could not be retrieved and returned null instead.
@@ -90,12 +91,12 @@ public class PathWriter {
             }
             // Sort paths:  primary by condition count, secondary by path length (both ascending)
             Collections.sort(fullMethodsPaths);
-            log.info("Sorted {} paths by condition count and path length", fullMethodsPaths.size());
+            log.debug("Sorted {} paths by condition count and path length", fullMethodsPaths.size());
             if (!fullMethodsPaths.isEmpty()) {
-                log.info("Simplest path has {} conditions and {} methods",
+                log.debug("Simplest path has {} conditions and {} methods",
                         fullMethodsPaths.get(0).conditionCount(),
                         fullMethodsPaths.get(0).path().size());
-                log.info("Most complex path has {} conditions and {} methods",
+                log.debug("Most complex path has {} conditions and {} methods",
                         fullMethodsPaths.get(fullMethodsPaths.size() - 1).conditionCount(),
                         fullMethodsPaths.get(fullMethodsPaths.size() - 1).path().size());
             }

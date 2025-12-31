@@ -31,6 +31,17 @@ public class SourceCodeExtractor {
     private static CtModel model;
 
     /**
+     * Clear all internal caches. Useful for testing to ensure test isolation.
+     */
+    public static void clearCaches() {
+        methodCache.clear();
+        typeCache.clear();
+        model = null;
+        currentSourceRoot = null;
+        SpoonMethodFinder.clearCache();
+    }
+
+    /**
      * Initialize or retrieve the Spoon model for the given source root.
      * This is cached to avoid re-parsing the entire source tree multiple times.
      */

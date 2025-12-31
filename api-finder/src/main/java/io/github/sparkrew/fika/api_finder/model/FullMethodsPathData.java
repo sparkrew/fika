@@ -16,21 +16,23 @@ public record FullMethodsPathData(
         List<String> getters,
         List<String> imports,
         String testTemplate,
-        int conditionCount
+        int conditionCount,
+        int callCount
 ) implements Comparable<FullMethodsPathData> {
 
     /**
      * Compare paths by condition count first (ascending), then by path length (ascending).
      * This prioritizes simpler paths with fewer conditions.
+     * Currently, we have no direct use of this comparison, but it is useful for later analysis.
      */
     @Override
     public int compareTo(FullMethodsPathData other) {
-        // Primary sort: condition count (fewer is better)
+        // Primary sort - condition count (fewer is better)
         int conditionComparison = Integer.compare(this.conditionCount, other.conditionCount);
         if (conditionComparison != 0) {
             return conditionComparison;
         }
-        // Secondary sort: path length (shorter is better)
+        // Secondary sort - path length (shorter is better)
         return Integer.compare(this.path. size(), other.path.size());
     }
 }
