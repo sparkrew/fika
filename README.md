@@ -13,9 +13,6 @@ Fika is a tool that performs static and dynamic reachability analysis of third-p
 {
   "org.bouncycastle.oer.its.etsi103097": [
     "org.bouncycastle:bcutil-jdk18on:jar:1.81"
-  ],
-  "org.mockito.internal.framework": [ 
-    "org.mockito:mockito-core:jar:5.19.0" 
   ]
 }
 ```
