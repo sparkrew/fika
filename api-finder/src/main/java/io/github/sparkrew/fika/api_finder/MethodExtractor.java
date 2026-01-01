@@ -48,7 +48,7 @@ public class MethodExtractor {
         JavaView view = createJavaView(pathToJar);
         Set<MethodSignature> entryPoints = detectEntryPoints(view, packageName);
         log.info("Found " + entryPoints.size() + " public methods as entry points.");
-        AnalysisResult result = analyzeReachability(view, entryPoints, packageMapPath, jacocoHtmlDirs);
+        AnalysisResult result = analyzeReachability(view, entryPoints, packageMapPath, jacocoHtmlDirs, sourceRootPath);
         // Write the three different output files
         PathWriter.writeAllFormats(result, reportPath, sourceRootPath);
         log.info("All analysis reports written successfully.");
@@ -68,7 +68,7 @@ public class MethodExtractor {
     }
 
     private static AnalysisResult analyzeReachability(JavaView view, Set<MethodSignature> entryPoints,
-                                                      Path packageMapPath, List<File> jacocoHtmlDirs) {
+                                                      Path packageMapPath, List<File> jacocoHtmlDirs, String sourceRootPath) {
         List<ThirdPartyPath> thirdPartyPaths = new ArrayList<>();
         List<PathStats> allPathStats = new ArrayList<>();
         try {
@@ -86,8 +86,6 @@ public class MethodExtractor {
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph = buildReverseCallGraph(cg);
             // For each third-party method, find all public methods that can reach it
             for (Map.Entry<MethodSignature, MethodSignature> pair : thirdPartyPairs) {
-                // To understand what this callCount is, refer to the comment in ThirdPartyPath record.
-                Integer callCount = 1;
                 MethodSignature directCaller = pair.getKey();
                 MethodSignature thirdPartyMethod = pair.getValue();
                 // Find all methods that can reach this third-party method by traversing backwards
@@ -122,11 +120,24 @@ public class MethodExtractor {
                                 allPathStats
                         );
                         if (path != null && !path.isEmpty()) {
+                            // Calculate the actual static call count by analyzing source code
+                            // The caller is the second-to-last method in the path
+                            Integer callCount = 1; // Default to 1 if source code is not available
+                            if (sourceRootPath != null && path.size() >= 2) {
+                                try {
+                                    MethodSignature actualCaller = path.get(path.size() - 2);
+                                    callCount = SourceCodeExtractor.countMethodInvocations(
+                                        actualCaller, thirdPartyMethod, sourceRootPath);
+                                } catch (Exception e) {
+                                    log.debug("Could not count invocations for path to {}, using default count of 1", 
+                                            thirdPartyMethod);
+                                }
+                            }
                             ThirdPartyPath tpPath = new ThirdPartyPath(
                                     publicMethod,
                                     thirdPartyMethod,
                                     path,
-                                    callCount  // Comment this line to disable call count
+                                    callCount
                             );
                             thirdPartyPaths.add(tpPath);
                         }

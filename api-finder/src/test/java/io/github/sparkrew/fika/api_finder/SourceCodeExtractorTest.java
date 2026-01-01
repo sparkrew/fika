@@ -192,4 +192,117 @@ class SourceCodeExtractorTest {
         assertNotNull(model2);
         assertSame(model1, model2);
     }
+
+    @Test
+    void testCountMethodInvocations_SingleInvocation() throws IOException {
+        // Create caller class
+        Path packageDir = srcMainJava.resolve("com").resolve("example");
+        Files.createDirectories(packageDir);
+        Path callerFile = packageDir.resolve("Caller.java");
+        String callerContent = """
+                package com.example;
+                                
+                public class Caller {
+                    public void callerMethod() {
+                        Target target = new Target();
+                        target.targetMethod();
+                    }
+                }
+                """;
+        Files.writeString(callerFile, callerContent);
+
+        MethodSignature callerSig = mock(MethodSignature.class);
+        ClassType callerClass = mock(ClassType.class);
+        when(callerSig.getDeclClassType()).thenReturn(callerClass);
+        when(callerClass.getFullyQualifiedName()).thenReturn("com.example.Caller");
+        when(callerSig.getName()).thenReturn("callerMethod");
+        when(callerSig.toString()).thenReturn("com.example.Caller.callerMethod()");
+
+        MethodSignature targetSig = mock(MethodSignature.class);
+        ClassType targetClass = mock(ClassType.class);
+        when(targetSig.getDeclClassType()).thenReturn(targetClass);
+        when(targetClass.getFullyQualifiedName()).thenReturn("com.example.Target");
+        when(targetSig.getName()).thenReturn("targetMethod");
+        when(targetSig.toString()).thenReturn("com.example.Target.targetMethod()");
+
+        int count = SourceCodeExtractor.countMethodInvocations(callerSig, targetSig, sourceRoot.toString());
+        assertEquals(1, count);
+    }
+
+    @Test
+    void testCountMethodInvocations_MultipleInvocations() throws IOException {
+        Path packageDir = srcMainJava.resolve("com").resolve("example");
+        Files.createDirectories(packageDir);
+        Path callerFile = packageDir.resolve("Caller.java");
+        String callerContent = """
+                package com.example;
+                                
+                public class Caller {
+                    public void callerMethod() {
+                        Target target = new Target();
+                        target.targetMethod();
+                        target.targetMethod();
+                        target.targetMethod();
+                    }
+                }
+                """;
+        Files.writeString(callerFile, callerContent);
+
+        MethodSignature callerSig = mock(MethodSignature.class);
+        ClassType callerClass = mock(ClassType.class);
+        when(callerSig.getDeclClassType()).thenReturn(callerClass);
+        when(callerClass.getFullyQualifiedName()).thenReturn("com.example.Caller");
+        when(callerSig.getName()).thenReturn("callerMethod");
+        when(callerSig.toString()).thenReturn("com.example.Caller.callerMethod()");
+
+        MethodSignature targetSig = mock(MethodSignature.class);
+        ClassType targetClass = mock(ClassType.class);
+        when(targetSig.getDeclClassType()).thenReturn(targetClass);
+        when(targetClass.getFullyQualifiedName()).thenReturn("com.example.Target");
+        when(targetSig.getName()).thenReturn("targetMethod");
+        when(targetSig.toString()).thenReturn("com.example.Target.targetMethod()");
+
+        int count = SourceCodeExtractor.countMethodInvocations(callerSig, targetSig, sourceRoot.toString());
+        assertEquals(3, count);
+    }
+
+    @Test
+    void testCountMethodInvocations_CacheHit() throws IOException {
+        Path packageDir = srcMainJava.resolve("com").resolve("example");
+        Files.createDirectories(packageDir);
+        Path callerFile = packageDir.resolve("Caller.java");
+        String callerContent = """
+                package com.example;
+                                
+                public class Caller {
+                    public void callerMethod() {
+                        Target target = new Target();
+                        target.targetMethod();
+                        target.targetMethod();
+                    }
+                }
+                """;
+        Files.writeString(callerFile, callerContent);
+
+        MethodSignature callerSig = mock(MethodSignature.class);
+        ClassType callerClass = mock(ClassType.class);
+        when(callerSig.getDeclClassType()).thenReturn(callerClass);
+        when(callerClass.getFullyQualifiedName()).thenReturn("com.example.Caller");
+        when(callerSig.getName()).thenReturn("callerMethod");
+        when(callerSig.toString()).thenReturn("com.example.Caller.callerMethod()");
+
+        MethodSignature targetSig = mock(MethodSignature.class);
+        ClassType targetClass = mock(ClassType.class);
+        when(targetSig.getDeclClassType()).thenReturn(targetClass);
+        when(targetClass.getFullyQualifiedName()).thenReturn("com.example.Target");
+        when(targetSig.getName()).thenReturn("targetMethod");
+        when(targetSig.toString()).thenReturn("com.example.Target.targetMethod()");
+        // First call - should compute
+        int count1 = SourceCodeExtractor.countMethodInvocations(callerSig, targetSig, sourceRoot.toString());
+        // Second call - should use cache
+        int count2 = SourceCodeExtractor.countMethodInvocations(callerSig, targetSig, sourceRoot.toString());
+        assertEquals(2, count1);
+        assertEquals(2, count2);
+        assertEquals(count1, count2);
+    }
 }

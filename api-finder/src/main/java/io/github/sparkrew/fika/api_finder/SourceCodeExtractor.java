@@ -27,19 +27,9 @@ public class SourceCodeExtractor {
     private static final Logger log = LoggerFactory.getLogger(SourceCodeExtractor.class);
     private static final Map<String, String> methodCache = new HashMap<>();
     private static final Map<String, CtType<?>> typeCache = new HashMap<>();
+    private static final Map<String, Integer> invocationCountCache = new HashMap<>();
     protected static String currentSourceRoot;
     private static CtModel model;
-
-    /**
-     * Clear all internal caches. Useful for testing to ensure test isolation.
-     */
-    public static void clearCaches() {
-        methodCache.clear();
-        typeCache.clear();
-        model = null;
-        currentSourceRoot = null;
-        SpoonMethodFinder.clearCache();
-    }
 
     /**
      * Initialize or retrieve the Spoon model for the given source root.
@@ -248,6 +238,62 @@ public class SourceCodeExtractor {
             sb.append(block.prettyprint()).append("\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * Count how many times a target method is invoked within a caller method.
+     * This is a static count based on source code analysis.
+     *
+     * @param callerSig      The method signature of the caller
+     * @param targetSig      The method signature of the target method to count
+     * @param sourceRootPath The root directory of the source code
+     * @return The number of times the target method is invoked in the caller
+     */
+    public static int countMethodInvocations(MethodSignature callerSig, MethodSignature targetSig,
+                                             String sourceRootPath) {
+        String cacheKey = callerSig.toString() + " -> " + targetSig.toString();
+        if (invocationCountCache.containsKey(cacheKey)) {
+            log.trace("Invocation count cache hit for {}", cacheKey);
+            return invocationCountCache.get(cacheKey);
+        }
+        try {
+            CtModel spoonModel = getOrCreateModel(sourceRootPath);
+            String className = callerSig.getDeclClassType().getFullyQualifiedName();
+            String methodName = callerSig.getName();
+            log.debug("Counting invocations in {}.{}", className, methodName);
+            CtType<?> ctType = findTypeCached(spoonModel, className);
+            if (ctType == null) {
+                log.debug("Type not found in Spoon model: {}", className);
+                return 1;
+            }
+            spoon.reflect.declaration.CtExecutable<?> executable;
+            if ("<init>".equals(methodName)) {
+                executable = SpoonMethodFinder.findConstructor(ctType, callerSig);
+            } else if ("<clinit>".equals(methodName)) {
+                return 1;
+            } else {
+                executable = SpoonMethodFinder.findRegularMethod(ctType, methodName, callerSig);
+            }
+            if (executable == null || executable.getBody() == null) {
+                log.warn("Method or body not found for {}", callerSig);
+                return 1; 
+            }
+            String targetMethodName = targetSig.getName();
+            String targetClassName = targetSig.getDeclClassType().getFullyQualifiedName();
+            InvocationCounter counter = new InvocationCounter(targetMethodName, targetClassName);
+            executable.getBody().accept(counter);
+            int count = counter.getCount();
+            int result = count > 0 ? count : 1;
+            log.debug("Found {} invocations of {} in {}", result, targetSig, callerSig);
+            invocationCountCache.put(cacheKey, result);
+            return result;
+        } catch (Exception e) {
+            log.warn("Error counting invocations for {} -> {}: {}", 
+                    callerSig, targetSig, e.getMessage());
+            int defaultCount = 1;
+            invocationCountCache.put(cacheKey, defaultCount);
+            return defaultCount;
+        }
     }
 
     /**
@@ -482,29 +528,114 @@ public class SourceCodeExtractor {
     }
 
     /**
+     * Check if two class names match, handling inner class naming differences.
+     * Spoon uses '.' but Soot might use '$' for inner classes.
+     */
+    private static boolean classNamesMatch(String spoonClassName, String sootClassName) {
+        if (spoonClassName.equals(sootClassName)) {
+            return true;
+        }
+        // Handle inner classes: Spoon uses '.' but Soot might use '$'
+        String normalizedSpoon = spoonClassName.replace('.', '$');
+        String normalizedSoot = sootClassName.replace('.', '$');
+        return normalizedSpoon.equals(normalizedSoot);
+    }
+
+    /**
+     * Check if class names match, considering inheritance.
+     * Returns true if: The classes match exactly, or the target class is a subclass of the invoked class
+     * (inherited method)
+     */
+    private static boolean classNamesMatchWithInheritance(String spoonClassName, String sootClassName) {
+        // Direct match
+        if (classNamesMatch(spoonClassName, sootClassName)) {
+            return true;
+        }
+        // Check if the target class is a subclass of the declaring class
+        // This handles cases where a method is defined in a parent class
+        // but we are tracking the call through a subclass
+        try {
+            CtType<?> targetType = findTypeCached(model, sootClassName);
+            if (targetType != null) {
+                return isSubclassOf(targetType, spoonClassName);
+            }
+        } catch (Exception e) {
+            log.trace("Could not check inheritance for {} and {}: {}",
+                    sootClassName, spoonClassName, e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Check if the given type is a subclass of the specified parent class name.
+     * Also checks implemented interfaces.
+     */
+    private static boolean isSubclassOf(CtType<?> type, String parentClassName) {
+        if (type == null) {
+            return false;
+        }
+        // Check direct superclass
+        if (type.getSuperclass() != null) {
+            String superClassName = type.getSuperclass().getQualifiedName();
+            if (classNamesMatch(superClassName, parentClassName)) {
+                return true;
+            }
+            // Recursively check parent classes
+            try {
+                CtType<?> superType = findTypeCached(model, superClassName);
+                if (isSubclassOf(superType, parentClassName)) {
+                    return true;
+                }
+            } catch (Exception e) {
+                log.trace("Could not resolve superclass {}: {}", superClassName, e.getMessage());
+            }
+        }
+        // Sometimes, it is an interface. Check implemented interfaces (including inherited interfaces)
+        Set<spoon.reflect.reference.CtTypeReference<?>> interfaces = type.getSuperInterfaces();
+        for (spoon.reflect.reference.CtTypeReference<?> interfaceRef : interfaces) {
+            if (interfaceRef == null) continue;
+            String interfaceName = interfaceRef.getQualifiedName();
+            if (classNamesMatch(interfaceName, parentClassName)) {
+                return true;
+            }
+            // Recursively check parent interfaces
+            try {
+                CtType<?> interfaceType = findTypeCached(model, interfaceName);
+                if (isSubclassOf(interfaceType, parentClassName)) {
+                    return true;
+                }
+            } catch (Exception e) {
+                log.trace("Could not resolve interface {}: {}", interfaceName, e.getMessage());
+            }
+        }
+        return false;
+    }
+
+    /**
      * Clear the cached model and method cache.
      * Useful for testing or when processing multiple projects.
      */
-    public static void clearCache() {
+    public static void clearCaches() {
+        methodCache.clear();
+        typeCache.clear();
+        invocationCountCache.clear();
         model = null;
         currentSourceRoot = null;
-        methodCache.clear();
         SpoonMethodFinder.clearCache();
-        log.debug("Cleared all caches");
     }
 
     /**
      * Get cache statistics for monitoring/debugging.
      */
     public static String getCacheStats() {
-        return String.format("Method cache: %d entries, %s",
-                methodCache.size(), SpoonMethodFinder.getCacheStats());
+        return String.format("Method cache: %d entries, Invocation count cache: %d entries, %s",
+                methodCache.size(), invocationCountCache.size(), SpoonMethodFinder.getCacheStats());
     }
 
     /**
      * Scanner to find the target method invocation in the path.
      * Handles inheritance - matches if the invoked class is the target class
-     * OR if the target class is a subclass of the invoked class.
+     * Or if the target class is a subclass of the invoked class.
      */
     private static class PathCallFinder extends CtScanner {
         private final String targetMethodName;
@@ -536,7 +667,7 @@ public class SourceCodeExtractor {
                 if (invokedMethod.equals(targetMethodName)) {
                     if (invocation.getExecutable().getDeclaringType() != null) {
                         String invokedClass = invocation.getExecutable().getDeclaringType().getQualifiedName();
-                        // Match if the declaring class matches OR if target is a subclass
+                        // Match if the declaring class matches or if target is a subclass
                         if (classNamesMatchWithInheritance(invokedClass, targetClassName)) {
                             targetInvocation = invocation;
                             return;
@@ -546,86 +677,48 @@ public class SourceCodeExtractor {
             }
             super.visitCtInvocation(invocation);
         }
+    }
 
-        /**
-         * Check if class names match, considering inheritance.
-         * Returns true if: The classes match exactly, or the target class is a subclass of the invoked class
-         * (inherited method)
-         */
-        private boolean classNamesMatchWithInheritance(String spoonClassName, String sootClassName) {
-            // Direct match
-            if (classNamesMatch(spoonClassName, sootClassName)) {
-                return true;
-            }
-            // Check if the target class is a subclass of the declaring class
-            // This handles cases where a method is defined in a parent class
-            // but we are tracking the call through a subclass
-            try {
-                CtType<?> targetType = findTypeCached(model, sootClassName);
-                if (targetType != null) {
-                    return isSubclassOf(targetType, spoonClassName);
-                }
-            } catch (Exception e) {
-                log.trace("Could not check inheritance for {} and {}: {}",
-                        sootClassName, spoonClassName, e.getMessage());
-            }
+    /**
+     * Scanner to count all invocations of a target method.
+     */
+    private static class InvocationCounter extends CtScanner {
+        private final String targetMethodName;
+        private final String targetClassName;
+        private int count = 0;
 
-            return false;
+        InvocationCounter(String targetMethodName, String targetClassName) {
+            this.targetMethodName = targetMethodName;
+            this.targetClassName = targetClassName;
         }
 
-        /**
-         * Check if the given type is a subclass of the specified parent class name.
-         * Also checks implemented interfaces.
-         */
-        private boolean isSubclassOf(CtType<?> type, String parentClassName) {
-            if (type == null) {
-                return false;
-            }
-            // Check direct superclass
-            if (type.getSuperclass() != null) {
-                String superClassName = type.getSuperclass().getQualifiedName();
-                if (classNamesMatch(superClassName, parentClassName)) {
-                    return true;
-                }
-                // Recursively check parent classes
-                try {
-                    CtType<?> superType = findTypeCached(model, superClassName);
-                    if (isSubclassOf(superType, parentClassName)) {
-                        return true;
+        @Override
+        public <T> void visitCtInvocation(CtInvocation<T> invocation) {
+            // Handle constructor calls (<init>)
+            if ("<init>".equals(targetMethodName)) {
+                if (invocation.getExecutable().getDeclaringType() != null) {
+                    String invokedClass = invocation.getExecutable().getDeclaringType().getQualifiedName();
+                    if (classNamesMatch(invokedClass, targetClassName)) {
+                        count++;
                     }
-                } catch (Exception e) {
-                    log.trace("Could not resolve superclass {}: {}", superClassName, e.getMessage());
                 }
-            }
-            // Sometimes, it is an interface. Check implemented interfaces (including inherited interfaces)
-            Set<spoon.reflect.reference.CtTypeReference<?>> interfaces = type.getSuperInterfaces();
-            for (spoon.reflect.reference.CtTypeReference<?> interfaceRef : interfaces) {
-                if (interfaceRef == null) continue;
-                String interfaceName = interfaceRef.getQualifiedName();
-                if (classNamesMatch(interfaceName, parentClassName)) {
-                    return true;
-                }
-                // Recursively check parent interfaces
-                try {
-                    CtType<?> interfaceType = findTypeCached(model, interfaceName);
-                    if (isSubclassOf(interfaceType, parentClassName)) {
-                        return true;
+            } else {
+                // Regular method call
+                String invokedMethod = invocation.getExecutable().getSimpleName();
+                if (invokedMethod.equals(targetMethodName)) {
+                    if (invocation.getExecutable().getDeclaringType() != null) {
+                        String invokedClass = invocation.getExecutable().getDeclaringType().getQualifiedName();
+                        if (classNamesMatchWithInheritance(invokedClass, targetClassName)) {
+                            count++;
+                        }
                     }
-                } catch (Exception e) {
-                    log.trace("Could not resolve interface {}: {}", interfaceName, e.getMessage());
                 }
             }
-            return false;
+            super.visitCtInvocation(invocation);
         }
 
-        private boolean classNamesMatch(String spoonClassName, String sootClassName) {
-            if (spoonClassName.equals(sootClassName)) {
-                return true;
-            }
-            // Handle inner classes: Spoon uses '.' but Soot might use '$'
-            String normalizedSpoon = spoonClassName.replace('.', '$');
-            String normalizedSoot = sootClassName.replace('.', '$');
-            return normalizedSpoon.equals(normalizedSoot);
+        public int getCount() {
+            return count;
         }
     }
 }
