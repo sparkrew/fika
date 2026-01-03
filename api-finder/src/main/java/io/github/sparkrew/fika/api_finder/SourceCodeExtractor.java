@@ -305,11 +305,11 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Extract all constructors, setters, and getters from a class.
+     * Extract all constructors and setters from a class.
      *
      * @param methodSig      A method signature from the class (to identify the class)
      * @param sourceRootPath The root directory of the source code
-     * @return ClassMembersData containing constructors, setters, getters, and required imports
+     * @return ClassMembersData containing constructors, setters, and required imports
      */
     public static ClassMemberData extractClassMembers(MethodSignature methodSig, String sourceRootPath) {
         try {
@@ -318,17 +318,16 @@ public class SourceCodeExtractor {
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
-                return new ClassMemberData(List.of(), List.of(), List.of(), Set.of());
+                return new ClassMemberData(List.of(), List.of(), Set.of());
             }
             List<String> constructors = extractAllConstructors(ctType);
             List<String> setters = extractSetters(ctType);
-            List<String> getters = extractGetters(ctType);
             Set<String> imports = new HashSet<>();
             extractImportsFromClassMembers(ctType, imports, className);
-            return new ClassMemberData(constructors, setters, getters, imports);
+            return new ClassMemberData(constructors, setters, imports);
         } catch (Exception e) {
             log.warn("Error extracting class members for {}: {}", methodSig, e.getMessage());
-            return new ClassMemberData(List.of(), List.of(), List.of(), Set.of());
+            return new ClassMemberData(List.of(), List.of(), Set.of());
         }
     }
 
@@ -365,26 +364,7 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Extract all getter methods from a type.
-     * A getter is identified as a method that:
-     * - Starts with "get" or "is"
-     * - Has no parameters
-     * - Returns a non-void type
-     * This could be too general, but we are following general conventions.
-     */
-    private static List<String> extractGetters(CtType<?> ctType) {
-        List<String> getters = ctType.getMethods().stream()
-                .filter(m -> (m.getSimpleName().startsWith("get") || m.getSimpleName().startsWith("is")) &&
-                        m.getParameters().isEmpty() &&
-                        !m.getType().getSimpleName().equals("void"))
-                .map(CtMethod::prettyprint)
-                .collect(Collectors.toList());
-        log.debug("Extracted {} getters from {}", getters.size(), ctType.getQualifiedName());
-        return getters;
-    }
-
-    /**
-     * Extract imports from all constructors, setters, and getters in a type.
+     * Extract imports from all constructors and setters in a type.
      */
     private static void extractImportsFromClassMembers(CtType<?> ctType, Set<String> imports, String className) {
         var constructorElements = ctType.getElements(

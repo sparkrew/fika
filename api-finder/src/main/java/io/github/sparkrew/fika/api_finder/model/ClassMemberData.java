@@ -4,11 +4,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Data class to hold class members (constructors, setters, getters) and their required imports.
+ * Data class to hold class members (constructors, setters) and their required imports.
  */
 public record ClassMemberData(
         List<String> constructors, 
         List<String> setters, 
-        List<String> getters,
         Set<String> imports) {
 }

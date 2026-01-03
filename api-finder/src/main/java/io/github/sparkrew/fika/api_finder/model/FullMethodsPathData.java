@@ -13,7 +13,6 @@ public record FullMethodsPathData(
         List<String> methodSources,
         List<String> constructors,
         List<String> setters,
-        List<String> getters,
         List<String> imports,
         String testTemplate,
         int conditionCount,

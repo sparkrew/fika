@@ -59,7 +59,7 @@ public class PathWriter {
                         SourceCodeExtractor.extractClassMembers(tp.entryPoint(), sourceRootPath);
                 Set<String> importsSet = SourceCodeExtractor.extractRequiredImports(
                         tp.entryPoint(), tp.path(), sourceRootPath);
-                // Merge imports from class members (constructors, setters, getters) with path imports
+                // Merge imports from class members (constructors, setters) with path imports
                 importsSet.addAll(classMembers.imports());
                 List<String> imports = new ArrayList<>(importsSet);
                 Collections.sort(imports);
@@ -79,7 +79,6 @@ public class PathWriter {
                         fullMethods,
                         classMembers.constructors(),
                         classMembers.setters(),
-                        classMembers.getters(),
                         imports,
                         testTemplate,
                         conditionCount,
