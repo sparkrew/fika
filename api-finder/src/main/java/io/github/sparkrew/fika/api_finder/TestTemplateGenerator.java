@@ -36,12 +36,12 @@ public class TestTemplateGenerator {
             String entryPointClassName = extractSimpleClassName(entryPoint.getDeclClassType().getFullyQualifiedName());
             String thirdPartyClassName = extractSimpleClassName(thirdPartyMethod.getDeclClassType().getFullyQualifiedName());
             String entryPointPackage = extractPackageName(entryPoint.getDeclClassType().getFullyQualifiedName());
-            String entryPointMethodName = entryPoint.getName();
-            String thirdPartyMethodName = thirdPartyMethod.getName();
+            String entryPointMethodName = sanitizeMethodName(entryPoint.getName());
+            String thirdPartyMethodName = sanitizeMethodName(thirdPartyMethod.getName());
             // Get the second-to-last method in the path
             MethodSignature lastPathMethod = thirdPartyPath.path().size() < 2 ? thirdPartyMethod : thirdPartyPath.path().get(thirdPartyPath.path().size() - 2);
             String lastMethodClassName = extractSimpleClassName(lastPathMethod.getDeclClassType().getFullyQualifiedName());
-            String lastMethodName = lastPathMethod.getName();
+            String lastMethodName = sanitizeMethodName(lastPathMethod.getName());
             // Build test class name based on path size
             String testClassName;
             if (lastMethodClassName.equals(entryPointClassName)) {
@@ -120,5 +120,18 @@ public class TestTemplateGenerator {
             return str;
         }
         return str.substring(0, 1).toUpperCase() + str.substring(1);
+    }
+
+    /**
+     * Sanitize method names by removing special method identifiers like <init> and <clinit>.
+     */
+    private static String sanitizeMethodName(String methodName) {
+        if (methodName == null) {
+            return "";
+        }
+        // Remove <init> and <clinit> from method names
+        String sanitized = methodName.replace("<init>", "").replace("<clinit>", "");
+        // If the result is empty after sanitization, use a default name
+        return sanitized.isEmpty() ? "method" : sanitized;
     }
 }

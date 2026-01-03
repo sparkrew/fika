@@ -309,7 +309,7 @@ public class SourceCodeExtractor {
      *
      * @param methodSig      A method signature from the class (to identify the class)
      * @param sourceRootPath The root directory of the source code
-     * @return ClassMembersData containing constructors, setters, and getters
+     * @return ClassMembersData containing constructors, setters, getters, and required imports
      */
     public static ClassMemberData extractClassMembers(MethodSignature methodSig, String sourceRootPath) {
         try {
@@ -318,15 +318,17 @@ public class SourceCodeExtractor {
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
-                return new ClassMemberData(List.of(), List.of(), List.of());
+                return new ClassMemberData(List.of(), List.of(), List.of(), Set.of());
             }
             List<String> constructors = extractAllConstructors(ctType);
             List<String> setters = extractSetters(ctType);
             List<String> getters = extractGetters(ctType);
-            return new ClassMemberData(constructors, setters, getters);
+            Set<String> imports = new HashSet<>();
+            extractImportsFromClassMembers(ctType, imports, className);
+            return new ClassMemberData(constructors, setters, getters, imports);
         } catch (Exception e) {
             log.warn("Error extracting class members for {}: {}", methodSig, e.getMessage());
-            return new ClassMemberData(List.of(), List.of(), List.of());
+            return new ClassMemberData(List.of(), List.of(), List.of(), Set.of());
         }
     }
 
@@ -379,6 +381,33 @@ public class SourceCodeExtractor {
                 .collect(Collectors.toList());
         log.debug("Extracted {} getters from {}", getters.size(), ctType.getQualifiedName());
         return getters;
+    }
+
+    /**
+     * Extract imports from all constructors, setters, and getters in a type.
+     */
+    private static void extractImportsFromClassMembers(CtType<?> ctType, Set<String> imports, String className) {
+        var constructorElements = ctType.getElements(
+                element -> element instanceof spoon.reflect.declaration.CtConstructor
+        );
+        for (var constructor : constructorElements) {
+            CtConstructor<?> ctConstructor = (CtConstructor<?>) constructor;
+            extractImportsFromExecutable(ctConstructor, imports);
+        }
+        ctType.getMethods().stream()
+                .filter(m -> m.getSimpleName().startsWith("set") &&
+                        m.getParameters().size() == 1 &&
+                        m.getType().getSimpleName().equals("void"))
+                .forEach(m -> extractImportsFromExecutable(m, imports));
+        ctType.getMethods().stream()
+                .filter(m -> (m.getSimpleName().startsWith("get") || m.getSimpleName().startsWith("is")) &&
+                        m.getParameters().isEmpty() &&
+                        !m.getType().getSimpleName().equals("void"))
+                .forEach(m -> extractImportsFromExecutable(m, imports));
+        Set<String> filteredImports = filterImports(imports, className);
+        imports.clear();
+        imports.addAll(filteredImports);
+        log.debug("Extracted {} imports from class members of {}", imports.size(), className);
     }
 
     // ToDo: It should be possible to remove the duplicated parts within imports extraction and source code extraction.

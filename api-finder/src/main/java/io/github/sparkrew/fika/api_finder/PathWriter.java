@@ -59,6 +59,8 @@ public class PathWriter {
                         SourceCodeExtractor.extractClassMembers(tp.entryPoint(), sourceRootPath);
                 Set<String> importsSet = SourceCodeExtractor.extractRequiredImports(
                         tp.entryPoint(), tp.path(), sourceRootPath);
+                // Merge imports from class members (constructors, setters, getters) with path imports
+                importsSet.addAll(classMembers.imports());
                 List<String> imports = new ArrayList<>(importsSet);
                 Collections.sort(imports);
                 // This is for the test template generation.  This would be another prompt format if needed.
