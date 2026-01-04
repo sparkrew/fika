@@ -78,6 +78,7 @@ public class PathWriter {
                         pathStrings,
                         fullMethods,
                         classMembers.constructors(),
+                        classMembers.fieldDeclarations(),
                         classMembers.setters(),
                         imports,
                         testTemplate,

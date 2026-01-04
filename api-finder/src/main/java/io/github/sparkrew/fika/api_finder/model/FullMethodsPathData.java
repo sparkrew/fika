@@ -4,7 +4,6 @@ import java.util.List;
 
 /**
  * Data structure for paths with full method implementations.
- * Now includes conditionCount for complexity analysis.
  */
 public record FullMethodsPathData(
         String entryPoint,
@@ -12,6 +11,7 @@ public record FullMethodsPathData(
         List<String> path,
         List<String> methodSources,
         List<String> constructors,
+        List<String> fieldDeclarations,
         List<String> setters,
         List<String> imports,
         String testTemplate,

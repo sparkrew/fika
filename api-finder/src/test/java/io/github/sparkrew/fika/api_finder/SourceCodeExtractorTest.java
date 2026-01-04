@@ -168,6 +168,7 @@ class SourceCodeExtractorTest {
         );
         assertNotNull(result);
         assertTrue(result.constructors().isEmpty());
+        assertTrue(result.fieldDeclarations().isEmpty());
         assertTrue(result.setters().isEmpty());
         assertTrue(result.imports().isEmpty());
     }

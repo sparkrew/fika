@@ -301,11 +301,11 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Extract all constructors and setters from a class.
+     * Extract all constructors, field declarations, and methods that modify fields from a class.
      *
      * @param methodSig      A method signature from the class (to identify the class)
      * @param sourceRootPath The root directory of the source code
-     * @return ClassMembersData containing constructors, setters, and required imports
+     * @return ClassMembersData containing constructors, field declarations, field-modifying methods, and required imports
      */
     public static ClassMemberData extractClassMembers(MethodSignature methodSig, String sourceRootPath) {
         try {
@@ -314,16 +314,19 @@ public class SourceCodeExtractor {
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
-                return new ClassMemberData(List.of(), List.of(), Set.of());
+                return new ClassMemberData(List.of(), List.of(), List.of(), Set.of());
             }
             List<String> constructors = extractAllConstructors(ctType);
-            List<String> setters = extractSetters(ctType);
+            List<String> fieldDeclarations = extractFieldDeclarations(ctType);
+            // Extract field names to identify field-modifying methods
+            Set<String> fieldNames = extractFieldNames(ctType);
+            List<String> fieldModifiers = extractFieldModifyingMethods(ctType, fieldNames);
             Set<String> imports = new HashSet<>();
-            extractImportsFromClassMembers(ctType, imports, className);
-            return new ClassMemberData(constructors, setters, imports);
+            extractImportsFromClassMembers(ctType, imports, className, fieldNames);
+            return new ClassMemberData(constructors, fieldDeclarations, fieldModifiers, imports);
         } catch (Exception e) {
             log.warn("Error extracting class members for {}: {}", methodSig, e.getMessage());
-            return new ClassMemberData(List.of(), List.of(), Set.of());
+            return new ClassMemberData(List.of(), List.of(), List.of(), Set.of());
         }
     }
 
@@ -342,27 +345,62 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Extract all setter methods from a type.
-     * A setter is identified as a method that:
-     * - Starts with "set"
-     * - Has exactly one parameter
-     * - Returns void
+     * Extract all field declarations (instance and static variables) from a type.
      */
-    private static List<String> extractSetters(CtType<?> ctType) {
-        List<String> setters = ctType.getMethods().stream()
-                .filter(m -> m.getSimpleName().startsWith("set") &&
-                        m.getParameters().size() == 1 &&
-                        m.getType().getSimpleName().equals("void"))
-                .map(CtMethod::prettyprint)
+    private static List<String> extractFieldDeclarations(CtType<?> ctType) {
+        List<String> fieldDeclarations = ctType.getFields().stream()
+                .map(field -> field.prettyprint())
                 .collect(Collectors.toList());
-        log.debug("Extracted {} setters from {}", setters.size(), ctType.getQualifiedName());
-        return setters;
+        log.debug("Extracted {} field declarations from {}", fieldDeclarations.size(), ctType.getQualifiedName());
+        return fieldDeclarations;
     }
 
     /**
-     * Extract imports from all constructors and setters in a type.
+     * Extract names of all instance and class (static) fields from a type.
      */
-    private static void extractImportsFromClassMembers(CtType<?> ctType, Set<String> imports, String className) {
+    private static Set<String> extractFieldNames(CtType<?> ctType) {
+        Set<String> fieldNames = ctType.getFields().stream()
+                .map(field -> field.getSimpleName())
+                .collect(Collectors.toSet());
+        log.debug("Extracted {} field names from {}", fieldNames.size(), ctType.getQualifiedName());
+        return fieldNames;
+    }
+
+    /**
+     * Extract all methods that assign values to the given fields.
+     * This includes:
+     * - Methods with assignments to fields (this.field = value or field = value)
+     * - Methods that call field.add(), field.put(), etc. (collection modifications)
+     * Only includes methods with void return type.
+     */
+    private static List<String> extractFieldModifyingMethods(CtType<?> ctType, Set<String> fieldNames) {
+        List<String> modifiers = new ArrayList<>();
+        for (CtMethod<?> method : ctType.getMethods()) {
+            if (method.getType().getSimpleName().equals("void") && methodModifiesFields(method, fieldNames)) {
+                modifiers.add(method.prettyprint());
+            }
+        }
+        log.debug("Extracted {} field-modifying methods from {}", modifiers.size(), ctType.getQualifiedName());
+        return modifiers;
+    }
+
+    /**
+     * Check if a method modifies any of the given fields.
+     */
+    private static boolean methodModifiesFields(CtMethod<?> method, Set<String> fieldNames) {
+        if (method.getBody() == null) {
+            return false;
+        }
+        FieldModificationChecker checker = new FieldModificationChecker(fieldNames);
+        method.getBody().accept(checker);
+        return checker.modifiesField();
+    }
+
+    /**
+     * Extract imports from all constructors, fields, and field-modifying methods in a type.
+     */
+    private static void extractImportsFromClassMembers(CtType<?> ctType, Set<String> imports, 
+                                                       String className, Set<String> fieldNames) {
         var constructorElements = ctType.getElements(
                 element -> element instanceof spoon.reflect.declaration.CtConstructor
         );
@@ -370,11 +408,15 @@ public class SourceCodeExtractor {
             CtConstructor<?> ctConstructor = (CtConstructor<?>) constructor;
             extractImportsFromExecutable(ctConstructor, imports);
         }
-        ctType.getMethods().stream()
-                .filter(m -> m.getSimpleName().startsWith("set") &&
-                        m.getParameters().size() == 1 &&
-                        m.getType().getSimpleName().equals("void"))
-                .forEach(m -> extractImportsFromExecutable(m, imports));
+        ctType.getFields().forEach(field -> {
+            addTypeImport(field.getType(), imports);
+        });
+        for (CtMethod<?> method : ctType.getMethods()) {
+            if (methodModifiesFields(method, fieldNames)) {
+                extractImportsFromExecutable(method, imports);
+            }
+        }
+        // Also extract imports from getters (they may be needed to verify field values in tests). We can remove this if more efficiency is needed.
         ctType.getMethods().stream()
                 .filter(m -> (m.getSimpleName().startsWith("get") || m.getSimpleName().startsWith("is")) &&
                         m.getParameters().isEmpty() &&
@@ -724,6 +766,54 @@ public class SourceCodeExtractor {
 
         public int getCount() {
             return count;
+        }
+    }
+
+    /**
+     * Scanner to check if a method modifies any of the given fields.
+     * Detects:
+     * - Direct assignments: this.field = value or field = value
+     * - Field method calls: field.add(...), field.put(...), etc.
+     */
+    private static class FieldModificationChecker extends CtScanner {
+        private final Set<String> fieldNames;
+        private boolean modifies = false;
+        FieldModificationChecker(Set<String> fieldNames) {
+            this.fieldNames = fieldNames;
+        }
+        @Override
+        public <T, A extends T> void visitCtAssignment(spoon.reflect.code.CtAssignment<T, A> assignment) {
+            if (modifies) return;
+            if (assignment.getAssigned() instanceof spoon.reflect.code.CtFieldWrite) {
+                spoon.reflect.code.CtFieldWrite<?> fieldWrite = 
+                    (spoon.reflect.code.CtFieldWrite<?>) assignment.getAssigned();
+                String fieldName = fieldWrite.getVariable().getSimpleName();
+                if (fieldNames.contains(fieldName)) {
+                    modifies = true;
+                    return;
+                }
+            }
+            super.visitCtAssignment(assignment);
+        }
+
+        @Override
+        public <T> void visitCtInvocation(CtInvocation<T> invocation) {
+            if (modifies) return;
+            if (invocation.getTarget() instanceof spoon.reflect.code.CtFieldRead) {
+                spoon.reflect.code.CtFieldRead<?> fieldRead = 
+                    (spoon.reflect.code.CtFieldRead<?>) invocation.getTarget();
+                String fieldName = fieldRead.getVariable().getSimpleName();
+                if (fieldNames.contains(fieldName)) {
+                    // This is potentially a method call on a field (e.g., list.add(...), map.put(...))
+                    modifies = true;
+                    return;
+                }
+            }
+            super.visitCtInvocation(invocation);
+        }
+
+        public boolean modifiesField() {
+            return modifies;
         }
     }
 }
