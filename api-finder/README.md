@@ -23,7 +23,7 @@ The API-Finder follows this workflow:
 4. **Coverage Filtering**: Filter out already-covered third-party calls using JaCoCo reports
 5. **Path Finding**: Compute shortest paths from entry points to uncovered third-party methods
 6. **Source Extraction**: Extract complete source code for all methods along each path
-7. **Context Gathering**: Collect constructors, setters, getters, and imports
+7. **Context Gathering**: Collect constructors, setters, and imports
 8. **Complexity Analysis**: Calculate condition counts and call counts for prioritization
 9. **Output Generation**: Write comprehensive JSON reports for test generation
 
@@ -209,11 +209,6 @@ For test generation, Fika also extracts class context:
 - Have exactly one parameter
 - Return void
 
-**Getters**: Methods that:
-- Start with "get" or "is"
-- Have no parameters
-- Return a non-void type
-
 **Imports**: Fika scans all methods in the path and extracts:
 - All import statements from classes involved
 - Filters to non-Java standard library imports
@@ -290,7 +285,6 @@ The API-Finder generates a comprehensive JSON report (`third_party_apis_full_met
       ],
       "constructors": ["public MyClass() { ... }"],
       "setters": ["public void setField(String value) { ... }"],
-      "getters": ["public String getField() { ... }"],
       "imports": ["import org.library.ThirdParty;"],
       "testTemplate": "package com.example;\n\npublic class MyClass_helperMethod_ThirdParty_targetMethodFikaTest {\n    @Test\n    public void testPublicMethod() {\n        // TODO\n    }\n}",
       "conditionCount": 3,

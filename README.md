@@ -31,7 +31,6 @@ Fika is a tool that performs static and dynamic reachability analysis of third-p
     "methodSources": [ "the complete source code of all relevant methods in the call chain." ],
     "constructors": [ "all constructors of the class that contains the entry-point method." ],
     "setters": ["all setters of the class that contains the entry-point method, if any."],
-    "getters": [ "all getters of the class that contains the entry-point method, if any." ],
     "imports": [ "imports that might be relevant for implementing the test - this includes all non-java imports that are involved in any method along the path, if any." ],
     "testTemplate": "a basic template for a test class with the package name, test class name and test method name.",
     "conditionCount": "an integer that indicates the number of control flow conditions (if, for, while, switch, etc.) in all methods along the path.",
