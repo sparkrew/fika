@@ -217,16 +217,12 @@ public class SourceCodeExtractor {
         return SpoonMethodFinder.findTypeCached(spoonModel, fullyQualifiedName);
     }
 
-    /**
-     * Extract static initializer block(s) from the type.
-     * Static initializers are represented as <clinit> in bytecode.
-     */
     private static String extractStaticInitializer(CtType<?> ctType) {
-        // Get all anonymous executable blocks which are static initializers.
+        // Get all static initializer blocks (CtAnonymousExecutable with modifier STATIC)
         var staticBlocks = ctType.getElements(
-                element -> element instanceof spoon.reflect.code.CtBlock &&
-                        element.getParent() instanceof CtType &&
-                        !element.isImplicit()
+                element -> element instanceof spoon.reflect.declaration.CtAnonymousExecutable &&
+                        ((spoon.reflect.declaration.CtAnonymousExecutable) element)
+                                .getModifiers().contains(spoon.reflect.declaration.ModifierKind.STATIC)
         );
         if (staticBlocks.isEmpty()) {
             log.debug("No static initializer found for {}", ctType.getQualifiedName());
@@ -235,7 +231,7 @@ public class SourceCodeExtractor {
         StringBuilder sb = new StringBuilder();
         sb.append(ctType.getQualifiedName()).append("\n");
         for (var block : staticBlocks) {
-            sb.append(block.prettyprint()).append("\n");
+            sb.append("static ").append(block.prettyprint()).append("\n");
         }
         return sb.toString();
     }
