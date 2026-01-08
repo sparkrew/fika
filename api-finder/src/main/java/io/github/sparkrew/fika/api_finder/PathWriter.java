@@ -53,6 +53,7 @@ public class PathWriter {
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
         try {
             List<FullMethodsPathData> fullMethodsPaths = new ArrayList<>();
+            List<FullMethodsPathData> skippedPaths = new ArrayList<>();
             for (ThirdPartyPath tp : result.thirdPartyPaths()) {
                 List<String> fullMethods = extractFullMethodBodiesWithComments(tp.path(), sourceRootPath);
                 ClassMemberData classMembers =
@@ -90,6 +91,11 @@ public class PathWriter {
                 // We skip all these paths, because we don't want any bias.
                 if (data.methodSources().stream().noneMatch(Objects::isNull))
                     fullMethodsPaths.add(data);
+                else {
+                    log.debug("Skipping path from {} to {} due to missing source code.",
+                            data.entryPoint(), data.thirdPartyMethod());
+                    skippedPaths.add(data);
+                }
             }
             // Sort paths:  primary by condition count, secondary by path length (both ascending)
             Collections.sort(fullMethodsPaths);
@@ -106,6 +112,14 @@ public class PathWriter {
             mapper.writeValue(outputFile, Map.of("fullMethodsPaths", fullMethodsPaths));
             log.info("Successfully wrote {} full methods paths to {}", fullMethodsPaths.size(),
                     outputFile.getAbsolutePath());
+            // We write skipped paths to a separate file for analysis
+            if (!skippedPaths.isEmpty()) {
+                String skippedPathsPath = outputPath.replace("_full_methods.json", "_skipped_paths.json");
+                File skippedFile = new File(skippedPathsPath);
+                mapper.writeValue(skippedFile, Map.of("skippedPaths", skippedPaths));
+                log.info("Successfully wrote {} skipped paths to {}", skippedPaths.size(),
+                        skippedFile.getAbsolutePath());
+            }
         } catch (Exception e) {
             log.error("Failed to write full methods format to JSON", e);
         }

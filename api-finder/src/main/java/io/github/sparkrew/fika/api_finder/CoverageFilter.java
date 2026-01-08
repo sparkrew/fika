@@ -93,16 +93,16 @@ public class CoverageFilter {
                     isCovered = isPreciseMethodCovered(htmlFile, dir, method, target, thirdPartyMethod);
                 } else {
                     // Quick HTML check is sufficient (only one call in entire class)
-                    isCovered = isMethodCoveredInClass(htmlFile, thirdPartyMethod);
+                    isCovered = isMethodCoveredInClass(htmlFile, method, target, thirdPartyMethod);
                 }
                 coverageCache.computeIfAbsent(htmlFilePath, k -> new ConcurrentHashMap<>())
                         .put(cacheKey, isCovered);
                 if (isCovered) {
-//                    CoverageLogger.logCoverage(thirdPartyMethodFull, true);
+                   CoverageLogger.logCoverage(thirdPartyMethodFull, true);
                     return true;
                 }
             }
-//            CoverageLogger.logCoverage(thirdPartyMethodFull, false);
+           CoverageLogger.logCoverage(thirdPartyMethodFull, false);
             return false;
         } catch (Exception e) {
             log.error("Error checking coverage for method: {}", method.getName(), e);
@@ -143,9 +143,9 @@ public class CoverageFilter {
                                                   MethodSignature method, MethodSignature target,
                                                   String thirdPartyMethod) throws Exception {
         // Get line numbers where target is called (from HTML)
-        Set<Integer> targetCallLines = getTargetCallLines(htmlFile, target);
+        Set<Integer> targetCallLines = getTargetCallLines(htmlFile, method, target);
         if (targetCallLines.isEmpty()) {
-            log.debug("No lines found calling target {} in HTML", thirdPartyMethod);
+            log.warn("No lines found calling target {} in HTML", thirdPartyMethod);
             return false;
         }
         log.debug("Target {} called on lines: {}", thirdPartyMethod, targetCallLines);
@@ -179,10 +179,34 @@ public class CoverageFilter {
     }
 
     /**
+     * Checks if the caller class extends the target class by checking the HTML source.
+     * Used to determine if we should look for super() calls instead of new ClassName() calls.
+     */
+    private static boolean callerExtendsTarget(File htmlFile, MethodSignature caller, MethodSignature target) {
+        try {
+            Document doc = Jsoup.parse(htmlFile);
+            String targetClassName = target.getDeclClassType().getFullyQualifiedName();
+            String shortTargetClassName = targetClassName.substring(targetClassName.lastIndexOf('.') + 1);
+            // Look for class declaration with extends keyword
+            Element pre = doc.selectFirst("pre");
+            if (pre != null) {
+                String source = pre.wholeText();
+                if (source.contains("class ") && source.contains("extends " + shortTargetClassName)) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error checking class inheritance: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    /**
      * Extracts line numbers from HTML where the target method is called.
      * This parses the HTML to find which line numbers contain calls to the target.
+     * For constructors, if the caller extends the target, looks for super() calls.
      */
-    private static Set<Integer> getTargetCallLines(File htmlFile, MethodSignature target) throws Exception {
+    private static Set<Integer> getTargetCallLines(File htmlFile, MethodSignature caller, MethodSignature target) throws Exception {
         String htmlFilePath = htmlFile.getAbsolutePath();
         String targetKey = target.getDeclClassType().getFullyQualifiedName() + "." + target.getName();
         Map<String, Set<Integer>> fileCache = htmlLineCache.get(htmlFilePath);
@@ -194,13 +218,22 @@ public class CoverageFilter {
         String targetClassName = target.getDeclClassType().getFullyQualifiedName();
         String shortClassName = targetClassName.substring(targetClassName.lastIndexOf('.') + 1);
         String methodName = target.getName();
+        // Check if this is a child-to-parent constructor call case
+        boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, caller, target);
         Elements spans = doc.select("span[id^=L]");
         for (Element span : spans) {
             String lineId = span.attr("id");
             String codeLine = span.text();
             boolean containsTarget = false;
             if ("<init>".equals(methodName)) {
-                containsTarget = codeLine.contains("new " + shortClassName + "(");
+                if (isChildConstructor) {
+                    // Child class calling parent constructor - look for super() call only
+                    containsTarget = codeLine.contains("super(");
+                    log.debug("Looking for super() call in line: {}", codeLine);
+                } else {
+                    // Regular constructor call
+                    containsTarget = codeLine.contains("new " + shortClassName + "(");
+                }
             } else if ("<clinit>".equals(methodName)) {
                 containsTarget = codeLine.contains(shortClassName);
             } else {
@@ -282,12 +315,12 @@ public class CoverageFilter {
                     String lineAttr = methodElem.getAttribute("line");
                     if (!lineAttr.isEmpty()) {
                         methodStartLine = Integer.parseInt(lineAttr);
-                        // Find the next method start line to determine end boundary
-                        for (int m = 0; m < allMethodStarts.size(); m++) {
-                            if (allMethodStarts.get(m).equals(methodStartLine)) {
-                                if (m + 1 < allMethodStarts.size()) {
-                                    methodEndLine = allMethodStarts.get(m + 1) - 1;
-                                }
+                        // Find the next method start line that is greater than current start line
+                        // This handles cases where multiple methods (e.g., overloaded constructors) 
+                        // share the same line number in the XML
+                        for (int nextLine : allMethodStarts) {
+                            if (nextLine > methodStartLine) {
+                                methodEndLine = nextLine - 1;
                                 break;
                             }
                         }
@@ -431,11 +464,15 @@ public class CoverageFilter {
     /**
      * Quick check: is the target method covered anywhere in the class?
      * Used when there's only one call to the target in the entire class.
+     * For constructors, if the caller extends the target, looks for super() calls.
      */
-    private static boolean isMethodCoveredInClass(File htmlFile, String thirdPartyMethod) throws Exception {
+    private static boolean isMethodCoveredInClass(File htmlFile, MethodSignature caller, 
+                                                  MethodSignature target, String thirdPartyMethod) throws Exception {
         String className = thirdPartyMethod.substring(0, thirdPartyMethod.lastIndexOf('.'));
         String shortClassName = className.substring(className.lastIndexOf('.') + 1);
         String methodName = thirdPartyMethod.substring(thirdPartyMethod.lastIndexOf('.') + 1);
+        // Check if this is a child-to-parent constructor call case
+        boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, caller, target);
         Document doc = Jsoup.parse(htmlFile);
         Elements spans = doc.select("span[id^=L]");
         for (Element span : spans) {
@@ -444,8 +481,16 @@ public class CoverageFilter {
             // Only process covered lines. fc means fully covered.
             if (clazz.contains("fc")) {
                 if ("<init>".equals(methodName)) {
-                    if (codeLine.contains("new " + shortClassName + "(")) {
-                        return true;
+                    if (isChildConstructor) {
+                        // Child class calling parent constructor - look for super() call only
+                        if (codeLine.contains("super(")) {
+                            log.debug("Found covered super() call in quick check");
+                            return true;
+                        }
+                    } else {
+                        if (codeLine.contains("new " + shortClassName + "(")) {
+                            return true;
+                        }
                     }
                 } else if ("<clinit>".equals(methodName)) {
                     if (codeLine.contains(shortClassName)) {

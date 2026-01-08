@@ -144,6 +144,7 @@ public class MethodExtractor {
                     }
                 }
             }
+            log.info("Collected " + thirdPartyPaths.size() + " third-party paths.");
             writePathStatsToJson(allPathStats);
         } catch (Exception e) {
             log.error("Failed to initialize call graph.", e);
@@ -423,6 +424,12 @@ public class MethodExtractor {
         name = name.replaceAll("\\$\\d+", "");
         // Replace $ followed by letter (e.g. Java.ArrayInitializer) with a dot
         name = name.replaceAll("\\$(?=[A-Za-z])", ".");
+        return name;
+    }
+
+    public static String filterNameSimple(String name) {
+        // Replace $ followed by digit (e.g., $Array1234) with nothing
+        name = name.replaceAll("\\$\\d+", "");
         return name;
     }
 

@@ -77,12 +77,16 @@ public class SourceCodeExtractor {
         }
         try {
             CtModel spoonModel = getOrCreateModel(sourceRootPath);
-            String className = methodSig.getDeclClassType().getFullyQualifiedName();
+            String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
             String methodName = methodSig.getName();
             // Handle inner classes - Spoon uses $ for inner classes
             CtType<?> ctType = findTypeCached(spoonModel, className);
+            // If not found and it's an inner class, try to navigate through the outer class
+            if (ctType == null && className.contains("$")) {
+                ctType = findInnerClass(spoonModel, className);
+            }
             if (ctType == null) {
-                log.debug("Type not found in Spoon model: {}", className);
+                log.warn("Type not found in Spoon model: {}", className);
                 methodCache.put(cacheKey, null);
                 return null;
             }
@@ -95,7 +99,7 @@ public class SourceCodeExtractor {
                 sourceCode = extractRegularMethod(ctType, methodName, methodSig, nextMethodSig);
             }
             if (sourceCode == null) {
-                log.debug("Method {} not found in type {}", methodName, className);
+                log.warn("Method {} not found in type {}", methodName, className);
             }
             methodCache.put(cacheKey, sourceCode);
             if (sourceCode != null) {
@@ -150,7 +154,7 @@ public class SourceCodeExtractor {
             return executable.prettyprint();
         }
         String nextMethodName = nextMethodSig.getName();
-        String nextClassName = nextMethodSig.getDeclClassType().getFullyQualifiedName();
+        String nextClassName = MethodExtractor.filterNameSimple(nextMethodSig.getDeclClassType().getFullyQualifiedName());
         String simpleClassName = nextClassName.substring(nextClassName.lastIndexOf('.') + 1);
         PathCallFinder finder = new PathCallFinder(nextMethodName, nextClassName);
         executable.getBody().accept(finder);
@@ -217,21 +221,82 @@ public class SourceCodeExtractor {
         return SpoonMethodFinder.findTypeCached(spoonModel, fullyQualifiedName);
     }
 
+    /**
+     * Find an inner class by navigating through the outer class.
+     * Handles cases where the direct lookup fails for inner classes.
+     */
+    private static CtType<?> findInnerClass(CtModel spoonModel, String fullyQualifiedName) {
+        if (!fullyQualifiedName.contains("$")) {
+            return null;
+        }
+        // Split on $ to get outer class and inner class path
+        String[] parts = fullyQualifiedName.split("\\$");
+        String outerClassName = parts[0];
+        // First try to find the outer class
+        CtType<?> currentType = findTypeCached(spoonModel, outerClassName);
+        if (currentType == null) {
+            log.debug("Outer class not found: {}", outerClassName);
+            return null;
+        }
+        // Navigate through nested inner classes
+        for (int i = 1; i < parts.length; i++) {
+            String innerClassName = parts[i];
+            CtType<?> foundInner = null;
+            for (CtType<?> nestedType : currentType.getNestedTypes()) {
+                if (nestedType.getSimpleName().equals(innerClassName)) {
+                    foundInner = nestedType;
+                    break;
+                }
+            }
+            if (foundInner == null) {
+                log.debug("Inner class {} not found in {}", innerClassName, currentType.getQualifiedName());
+                return null;
+            }
+            currentType = foundInner;
+        }
+        log.debug("Successfully found inner class: {}", fullyQualifiedName);
+        return currentType;
+    }
+
     private static String extractStaticInitializer(CtType<?> ctType) {
+        if (ctType == null) {
+            log.warn("Cannot extract static initializer from null type");
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(ctType.getQualifiedName()).append("\n\n");
         // Get all static initializer blocks (CtAnonymousExecutable with modifier STATIC)
         var staticBlocks = ctType.getElements(
                 element -> element instanceof spoon.reflect.declaration.CtAnonymousExecutable &&
                         ((spoon.reflect.declaration.CtAnonymousExecutable) element)
                                 .getModifiers().contains(spoon.reflect.declaration.ModifierKind.STATIC)
         );
-        if (staticBlocks.isEmpty()) {
-            log.debug("No static initializer found for {}", ctType.getQualifiedName());
-            return "";
+        // Get all static fields with initializers
+        var staticFields = ctType.getFields().stream()
+                .filter(field -> field.getModifiers().contains(spoon.reflect.declaration.ModifierKind.STATIC))
+                .filter(field -> field.getDefaultExpression() != null)
+                .collect(Collectors.toList());
+        if (staticBlocks.isEmpty() && staticFields.isEmpty()) {
+            log.warn("No static initializer or static field initializations found for {}", 
+                    ctType.getQualifiedName());
+            return null;
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append(ctType.getQualifiedName()).append("\n");
-        for (var block : staticBlocks) {
-            sb.append("static ").append(block.prettyprint()).append("\n");
+        // Add static field declarations with initializers
+        if (!staticFields.isEmpty()) {
+            sb.append("// Static field initializations\n");
+            for (var field : staticFields) {
+                sb.append(field.prettyprint()).append("\n");
+            }
+            if (!staticBlocks.isEmpty()) {
+                sb.append("\n");
+            }
+        }
+        // Add static blocks
+        if (!staticBlocks.isEmpty()) {
+            sb.append("// Static initializer blocks\n");
+            for (var block : staticBlocks) {
+                sb.append("static ").append(block.prettyprint()).append("\n");
+            }
         }
         return sb.toString();
     }
@@ -310,7 +375,7 @@ public class SourceCodeExtractor {
     public static ClassMemberData extractClassMembers(MethodSignature methodSig, String sourceRootPath) {
         try {
             CtModel spoonModel = getOrCreateModel(sourceRootPath);
-            String className = methodSig.getDeclClassType().getFullyQualifiedName();
+            String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
@@ -446,7 +511,7 @@ public class SourceCodeExtractor {
         Set<String> imports = new HashSet<>();
         try {
             CtModel spoonModel = getOrCreateModel(sourceRootPath);
-            String className = entryPointSig.getDeclClassType().getFullyQualifiedName();
+            String className = MethodExtractor.filterNameSimple(entryPointSig.getDeclClassType().getFullyQualifiedName());
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
@@ -476,7 +541,7 @@ public class SourceCodeExtractor {
     private static void extractImportsFromMethodSignature(CtModel spoonModel,
                                                           MethodSignature methodSig,
                                                           Set<String> imports) {
-        String className = methodSig.getDeclClassType().getFullyQualifiedName();
+        String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
         CtType<?> ctType = findTypeCached(spoonModel, className);
         if (ctType == null) {
             return;
@@ -495,18 +560,28 @@ public class SourceCodeExtractor {
     }
 
     /**
-     * Extract imports from static initializer blocks.
+     * Extract imports from static initializer blocks and static field initializations.
      */
     private static void extractImportsFromStaticInitializer(CtType<?> ctType, Set<String> imports) {
+        // Extract from static blocks
         var staticBlocks = ctType.getElements(
-                element -> element instanceof spoon.reflect.code.CtBlock &&
-                        element.getParent() instanceof CtType &&
-                        !element.isImplicit()
+                element -> element instanceof spoon.reflect.declaration.CtAnonymousExecutable &&
+                        ((spoon.reflect.declaration.CtAnonymousExecutable) element)
+                                .getModifiers().contains(spoon.reflect.declaration.ModifierKind.STATIC)
         );
         for (var block : staticBlocks) {
             block.getElements(element -> element instanceof spoon.reflect.reference.CtTypeReference)
                     .forEach(typeRef -> addTypeImport((spoon.reflect.reference.CtTypeReference<?>) typeRef, imports));
         }
+        // Extract from static fields with initializers
+        ctType.getFields().stream()
+                .filter(field -> field.getModifiers().contains(spoon.reflect.declaration.ModifierKind.STATIC))
+                .filter(field -> field.getDefaultExpression() != null)
+                .forEach(field -> {
+                    addTypeImport(field.getType(), imports);
+                    field.getDefaultExpression().getElements(element -> element instanceof spoon.reflect.reference.CtTypeReference)
+                            .forEach(typeRef -> addTypeImport((spoon.reflect.reference.CtTypeReference<?>) typeRef, imports));
+                });
     }
 
     /**

@@ -65,7 +65,7 @@ public class RecordCounter {
                 return 0;
             }
             CtModel spoonModel = SourceCodeExtractor.getModel(sourceRootPath);
-            String className = methodSig.getDeclClassType().getFullyQualifiedName();
+            String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
             String methodName = methodSig.getName();
             // Find the type using shared helper
             CtType<?> ctType = SpoonMethodFinder.findTypeCached(spoonModel, className);
