@@ -103,7 +103,7 @@ public class PathWriter {
                     skippedPaths.add(data);
                 }
             }
-            // Sort paths:  primary by condition count, secondary by path length (both ascending)
+            // Sort paths:  primary by path length, secondary by condition count (both ascending)
             Collections.sort(fullMethodsPaths);
             log.debug("Sorted {} paths by condition count and path length", fullMethodsPaths.size());
             if (!fullMethodsPaths.isEmpty()) {
