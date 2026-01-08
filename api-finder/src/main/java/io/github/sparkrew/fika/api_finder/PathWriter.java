@@ -73,9 +73,14 @@ public class PathWriter {
                 List<String> pathStrings = tp.path().stream()
                         .map(MethodExtractor::getFilteredMethodSignature)
                         .collect(Collectors.toList());
+                // Direct caller is the second-to-last method in the path (before the third party method)
+                String directCaller = pathStrings.size() >= 2 ? 
+                        pathStrings.get(pathStrings.size() - 2) : 
+                        pathStrings.get(0);
                 FullMethodsPathData data = new FullMethodsPathData(
                         MethodExtractor.getFilteredMethodSignature(tp.entryPoint()),
                         MethodExtractor.getFilteredMethodSignature(tp.thirdPartyMethod()),
+                        directCaller,
                         pathStrings,
                         fullMethods,
                         classMembers.constructors(),
@@ -84,7 +89,8 @@ public class PathWriter {
                         imports,
                         testTemplate,
                         conditionCount,
-                        tp.callCount()
+                        tp.callCount(),
+                        false
                 );
                 // We don't want a record without any source code extracted. This could happen when the source code
                 // could not be retrieved and returned null instead.

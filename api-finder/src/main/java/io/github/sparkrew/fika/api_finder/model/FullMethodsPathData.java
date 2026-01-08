@@ -8,6 +8,7 @@ import java.util.List;
 public record FullMethodsPathData(
         String entryPoint,
         String thirdPartyMethod,
+        String directCaller,
         List<String> path,
         List<String> methodSources,
         List<String> constructors,
@@ -16,7 +17,8 @@ public record FullMethodsPathData(
         List<String> imports,
         String testTemplate,
         int conditionCount,
-        int callCount
+        int callCount,
+        boolean covered
 ) implements Comparable<FullMethodsPathData> {
 
     /**

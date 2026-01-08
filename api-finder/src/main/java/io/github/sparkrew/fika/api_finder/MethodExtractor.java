@@ -84,63 +84,56 @@ public class MethodExtractor {
             // Build reverse call graph for efficient backward traversal. Otherwise, it takes painfully long time to
             // run with the forward graph (from public methods to third party methods).
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph = buildReverseCallGraph(cg);
-            // For each third-party method, find all public methods that can reach it
+            // For each third-party call site, find the public method that leads to it
             for (Map.Entry<MethodSignature, MethodSignature> pair : thirdPartyPairs) {
                 MethodSignature directCaller = pair.getKey();
                 MethodSignature thirdPartyMethod = pair.getValue();
-                // Find all methods that can reach this third-party method by traversing backwards
-                // Here we use the direct caller of the third-party method instead of the third party method itself,
-                // because we care about all call sites. If we start from the third party method, we may miss some
-                // call sites, when the same third party method is there in multiple call sites.
-                Set<MethodSignature> reachingMethods = findReachingMethods(
-                        reverseCallGraph,
-                        directCaller,
-                        entryPoints,
-                        packageMapPath
-                );
-                // For each public method that can reach this third-party method,
-                // find the shortest direct path and create a ThirdPartyPath entry.
-                for (MethodSignature publicMethod : reachingMethods) {
-                    if (entryPoints.contains(publicMethod)) {
-                        // Here, we look for the shortest path from the public method to the third-party method.
-                        // We do that because otherwise the number of paths tend to explode.
-                        // Now, we have one path per source (public method) & target (direct caller method) pair.
-                        // This is good for our test generation goal because we generate tests for the public method
-                        // in order to reach the third-party method. It is important to note that, we still collect
-                        // multiple paths to reach a third party method, as long as they originate from different public
-                        // methods.
-                        // We collect stats about all paths while finding the shortest path. But this is very expensive.
-                        // We can switch to the original version (findShortestDirectPath) that only finds the shortest
-                        // path if needed.
-                        List<MethodSignature> path = findShortestDirectPathWithStats(
-                                cg,
+                // Calculate the actual static call count by analyzing source code
+                Integer callCount = 1; // Default to 1 if source code is not available
+                if (sourceRootPath != null) {
+                    try {
+                        callCount = SourceCodeExtractor.countMethodInvocations(
+                            directCaller, thirdPartyMethod, sourceRootPath);
+                    } catch (Exception e) {
+                        log.debug("Could not count invocations for path to {}, using default count of 1", 
+                                thirdPartyMethod);
+                    }
+                }
+                // If the direct caller is already a public method (entry point),
+                // we can directly record this as a path
+                if (entryPoints.contains(directCaller)) {
+                    List<MethodSignature> path = Arrays.asList(directCaller, thirdPartyMethod);
+                    ThirdPartyPath tpPath = new ThirdPartyPath(
+                            directCaller,
+                            thirdPartyMethod,
+                            path,
+                            callCount
+                    );
+                    thirdPartyPaths.add(tpPath);
+                } else {
+                    // If the direct caller is not public, we need to do BFS to find
+                    // the first public methods that can reach this direct caller
+                    List<List<MethodSignature>> pathsToPublicMethods = findPathsToFirstPublicCallers(
+                            reverseCallGraph,
+                            directCaller,
+                            entryPoints,
+                            packageMapPath
+                    );
+                    // For each path found from public method to direct caller, append the third party method
+                    for (List<MethodSignature> pathToDirectCaller : pathsToPublicMethods) {
+                        // The path is in reverse order (from directCaller to publicMethod)
+                        // We need to reverse it and append the third party method
+                        List<MethodSignature> completePath = new ArrayList<>(pathToDirectCaller);
+                        Collections.reverse(completePath);
+                        completePath.add(thirdPartyMethod);
+                        MethodSignature publicMethod = completePath.get(0);
+                        ThirdPartyPath tpPath = new ThirdPartyPath(
                                 publicMethod,
                                 thirdPartyMethod,
-                                packageMapPath,
-                                allPathStats
+                                completePath,
+                                callCount
                         );
-                        if (path != null && !path.isEmpty()) {
-                            // Calculate the actual static call count by analyzing source code
-                            // The caller is the second-to-last method in the path
-                            Integer callCount = 1; // Default to 1 if source code is not available
-                            if (sourceRootPath != null && path.size() >= 2) {
-                                try {
-                                    MethodSignature actualCaller = path.get(path.size() - 2);
-                                    callCount = SourceCodeExtractor.countMethodInvocations(
-                                        actualCaller, thirdPartyMethod, sourceRootPath);
-                                } catch (Exception e) {
-                                    log.debug("Could not count invocations for path to {}, using default count of 1", 
-                                            thirdPartyMethod);
-                                }
-                            }
-                            ThirdPartyPath tpPath = new ThirdPartyPath(
-                                    publicMethod,
-                                    thirdPartyMethod,
-                                    path,
-                                    callCount
-                            );
-                            thirdPartyPaths.add(tpPath);
-                        }
+                        thirdPartyPaths.add(tpPath);
                     }
                 }
             }
@@ -220,21 +213,25 @@ public class MethodExtractor {
     }
 
     /**
-     * Find all methods (especially public ones) that can reach the target method
-     * by traversing backwards through the call graph
+     * Find all shortest paths from the direct caller to public methods (entry points)
+     * by traversing backwards through the call graph using BFS.
+     * Returns the complete paths (in reverse order: from directCaller to publicMethod).
+     * Stops at the first public method found in each path (no intermediate public methods).
      */
-    private static Set<MethodSignature> findReachingMethods(
+    private static List<List<MethodSignature>> findPathsToFirstPublicCallers(
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph,
-            MethodSignature target,
+            MethodSignature directCaller,
             Set<MethodSignature> entryPoints,
             Path packageMapPath) {
-        Set<MethodSignature> reachingPublicMethods = new HashSet<>();
+        List<List<MethodSignature>> completePaths = new ArrayList<>();
         Set<MethodSignature> visited = new HashSet<>();
-        Deque<MethodSignature> queue = new ArrayDeque<>();
-        queue.add(target);
-        visited.add(target);
+        Deque<List<MethodSignature>> queue = new ArrayDeque<>();
+        // Start with the direct caller as the initial path
+        queue.add(List.of(directCaller));
+        visited.add(directCaller);
         while (!queue.isEmpty()) {
-            MethodSignature current = queue.poll();
+            List<MethodSignature> currentPath = queue.poll();
+            MethodSignature current = currentPath.get(currentPath.size() - 1);
             // Get all methods that call the current method
             Set<MethodSignature> callers = reverseCallGraph.getOrDefault(current, Collections.emptySet());
             for (MethodSignature caller : callers) {
@@ -246,22 +243,20 @@ public class MethodExtractor {
                     continue;
                 }
                 visited.add(caller);
-                // If this is a public method (entry point), add it to results,
-                // but we stop continuing traversing backward from it.
-                // That is, if we only want the shortest path to a public method from a third-party method with no
-                // intermediate public methods in between.
-                // Remove the else condition and move the queue.add outside to just continue traversing all methods
-                // and it is also possible to simplify the first if condition on visited.contains. Refer to an older
-                // commit (before 2025/11) for more info.
+                // Build the new path by appending this caller
+                List<MethodSignature> newPath = new ArrayList<>(currentPath);
+                newPath.add(caller);
+                // If this is a public method (entry point), we found a complete path
+                // and stop traversing backward from it (we want first public method only)
                 if (entryPoints.contains(caller)) {
-                    reachingPublicMethods.add(caller);
+                    completePaths.add(newPath);
                 } else {
-                    // Only continue traversing if it's not a public method
-                    queue.add(caller);
+                    // Only continue BFS if it's not a public method
+                    queue.add(newPath);
                 }
             }
         }
-        return reachingPublicMethods;
+        return completePaths;
     }
 
     /**
