@@ -179,6 +179,31 @@ public class CoverageFilter {
     }
 
     /**
+     * Checks if a code line represents a constructor declaration.
+     * Constructor declarations look like: "public ClassName(" or "ClassName(" etc.
+     * This is used to detect implicit super() calls in child class constructors.
+     */
+    private static boolean isConstructorDeclaration(String codeLine, String className) {
+        // Constructor patterns:
+        // - public ClassName(
+        // - protected ClassName(
+        // - private ClassName(
+        // - ClassName( (package-private)
+        // Match word boundary before className to avoid partial matches
+        String[] modifiers = {"public ", "protected ", "private ", ""};
+        for (String modifier : modifiers) {
+            String pattern = modifier + className + "(";
+            if (codeLine.contains(pattern)) {
+                // Make sure it's not a "new ClassName(" call
+                if (!codeLine.contains("new " + className + "(")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Checks if the caller class extends the target class by checking the HTML source.
      * Used to determine if we should look for super() calls instead of new ClassName() calls.
      */
@@ -204,7 +229,8 @@ public class CoverageFilter {
     /**
      * Extracts line numbers from HTML where the target method is called.
      * This parses the HTML to find which line numbers contain calls to the target.
-     * For constructors, if the caller extends the target, looks for super() calls.
+     * For constructors, if the caller extends the target, looks for super() calls OR implicit constructor calls.
+     * For regular methods, also checks for super.methodName() calls (overridden methods).
      */
     private static Set<Integer> getTargetCallLines(File htmlFile, MethodSignature caller, MethodSignature target) throws Exception {
         String htmlFilePath = htmlFile.getAbsolutePath();
@@ -220,6 +246,9 @@ public class CoverageFilter {
         String methodName = target.getName();
         // Check if this is a child-to-parent constructor call case
         boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, caller, target);
+        // Get the caller's simple class name for implicit constructor detection
+        String callerClassName = caller.getDeclClassType().getFullyQualifiedName();
+        String callerSimpleClassName = callerClassName.substring(callerClassName.lastIndexOf('.') + 1);
         Elements spans = doc.select("span[id^=L]");
         for (Element span : spans) {
             String lineId = span.attr("id");
@@ -227,9 +256,17 @@ public class CoverageFilter {
             boolean containsTarget = false;
             if ("<init>".equals(methodName)) {
                 if (isChildConstructor) {
-                    // Child class calling parent constructor - look for super() call only
-                    containsTarget = codeLine.contains("super(");
-                    log.debug("Looking for super() call in line: {}", codeLine);
+                    // Child class calling parent constructor - look for:
+                    // 1. Explicit super() call
+                    // 2. Implicit call via child constructor (e.g., "public ChildClass() {")
+                    if (codeLine.contains("super(")) {
+                        containsTarget = true;
+                        log.debug("Found explicit super() call in line: {}", codeLine);
+                    } else if (isConstructorDeclaration(codeLine, callerSimpleClassName)) {
+                        // This is the child constructor declaration - implicit super() call
+                        containsTarget = true;
+                        log.debug("Found implicit constructor call (child constructor declaration) in line: {}", codeLine);
+                    }
                 } else {
                     // Regular constructor call
                     containsTarget = codeLine.contains("new " + shortClassName + "(");
@@ -237,7 +274,10 @@ public class CoverageFilter {
             } else if ("<clinit>".equals(methodName)) {
                 containsTarget = codeLine.contains(shortClassName);
             } else {
-                containsTarget = codeLine.contains(methodName + "(");
+                // Regular method - check for direct call or super.methodName() call
+                if (codeLine.contains(methodName + "(")) {
+                    containsTarget = true;
+                }
             }
             if (containsTarget) {
                 // Extract line number from id. ID is in the format "L123". We have to parse it to get 123.
@@ -464,7 +504,8 @@ public class CoverageFilter {
     /**
      * Quick check: is the target method covered anywhere in the class?
      * Used when there's only one call to the target in the entire class.
-     * For constructors, if the caller extends the target, looks for super() calls.
+     * For constructors, if the caller extends the target, looks for super() calls OR implicit constructor calls.
+     * For regular methods, also checks for super.methodName() calls.
      */
     private static boolean isMethodCoveredInClass(File htmlFile, MethodSignature caller, 
                                                   MethodSignature target, String thirdPartyMethod) throws Exception {
@@ -473,6 +514,9 @@ public class CoverageFilter {
         String methodName = thirdPartyMethod.substring(thirdPartyMethod.lastIndexOf('.') + 1);
         // Check if this is a child-to-parent constructor call case
         boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, caller, target);
+        // Get the caller's simple class name for implicit constructor detection
+        String callerClassName = caller.getDeclClassType().getFullyQualifiedName();
+        String callerSimpleClassName = callerClassName.substring(callerClassName.lastIndexOf('.') + 1);
         Document doc = Jsoup.parse(htmlFile);
         Elements spans = doc.select("span[id^=L]");
         for (Element span : spans) {
@@ -482,9 +526,15 @@ public class CoverageFilter {
             if (clazz.contains("fc")) {
                 if ("<init>".equals(methodName)) {
                     if (isChildConstructor) {
-                        // Child class calling parent constructor - look for super() call only
+                        // Child class calling parent constructor - look for:
+                        // 1. Explicit super() call
+                        // 2. Implicit call via child constructor declaration
                         if (codeLine.contains("super(")) {
                             log.debug("Found covered super() call in quick check");
+                            return true;
+                        }
+                        if (isConstructorDeclaration(codeLine, callerSimpleClassName)) {
+                            log.debug("Found covered implicit constructor call (child constructor) in quick check");
                             return true;
                         }
                     } else {
@@ -497,6 +547,7 @@ public class CoverageFilter {
                         return true;
                     }
                 } else {
+                    // Regular method - check for direct call or super.methodName() call
                     if (codeLine.contains(methodName + "(")) {
                         return true;
                     }
