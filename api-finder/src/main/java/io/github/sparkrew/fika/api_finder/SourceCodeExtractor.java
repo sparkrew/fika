@@ -397,6 +397,7 @@ public class SourceCodeExtractor {
 
     /**
      * Extract all constructors from a type.
+     * If all constructors are private, also extracts public static factory methods that return an instance of the class.
      */
     private static List<String> extractAllConstructors(CtType<?> ctType) {
         var constructorElements = ctType.getElements(
@@ -405,8 +406,37 @@ public class SourceCodeExtractor {
         List<String> constructors = constructorElements.stream()
                 .map(CtElement::prettyprint)
                 .collect(Collectors.toList());
+        // Check if any constructor is private
+        boolean anyConstructorsPrivate = constructorElements.stream()
+                .anyMatch(element -> ((CtConstructor<?>) element).isPrivate());
+        // If any constructors are private, extract public static factory methods
+        if (anyConstructorsPrivate && !constructorElements.isEmpty()) {
+            log.debug("One or more constructors are private in {}, extracting factory methods", ctType.getQualifiedName());
+            List<String> factoryMethods = extractPublicStaticFactoryMethods(ctType);
+            constructors.addAll(factoryMethods);
+            log.debug("Added {} factory methods to constructors", factoryMethods.size());
+        }
         log.debug("Extracted {} constructors from {}", constructors.size(), ctType.getQualifiedName());
         return constructors;
+    }
+    
+    /**
+     * Extract public static methods that return an instance of the class (factory methods).
+     * These methods typically serve as alternatives to constructors when constructors are private.
+     */
+    private static List<String> extractPublicStaticFactoryMethods(CtType<?> ctType) {
+        String className = ctType.getQualifiedName();
+        List<String> factoryMethods = ctType.getMethods().stream()
+                .filter(method -> method.isPublic() && method.isStatic())
+                .filter(method -> {
+                    // Check if return type matches the class type
+                    String returnType = method.getType().getQualifiedName();
+                    return returnType.equals(className);
+                })
+                .map(CtMethod::prettyprint)
+                .collect(Collectors.toList());
+        log.debug("Found {} factory methods in {}", factoryMethods.size(), ctType.getQualifiedName());
+        return factoryMethods;
     }
 
     /**
