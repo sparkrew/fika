@@ -116,6 +116,7 @@ public class SourceCodeExtractor {
     /**
      * Extract a regular method by name and parameter types and adds comments.
      * Handles method overloading by matching the full signature.
+     * SpoonMethodFinder will search in the superclass hierarchy if needed.
      */
     private static String extractRegularMethod(CtType<?> ctType, String methodName,
                                                MethodSignature methodSig, MethodSignature nextMethodSig) {
@@ -238,7 +239,6 @@ public class SourceCodeExtractor {
             log.debug("Outer class not found: {}", outerClassName);
             return null;
         }
-        // Navigate through nested inner classes
         for (int i = 1; i < parts.length; i++) {
             String innerClassName = parts[i];
             CtType<?> foundInner = null;
