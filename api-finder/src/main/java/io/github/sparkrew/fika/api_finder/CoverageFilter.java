@@ -98,11 +98,17 @@ public class CoverageFilter {
                 coverageCache.computeIfAbsent(htmlFilePath, k -> new ConcurrentHashMap<>())
                         .put(cacheKey, isCovered);
                 if (isCovered) {
-                   CoverageLogger.logCoverage(thirdPartyMethodFull, true);
+                    String callerSignature = method.getDeclClassType().getFullyQualifiedName() + "." + method.getName() +
+                            "(" + method.getParameterTypes().stream().map(Type::toString)
+                            .collect(Collectors.joining(", ")) + ")";
+                    CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, true);
                     return true;
                 }
             }
-           CoverageLogger.logCoverage(thirdPartyMethodFull, false);
+            String callerSignature = method.getDeclClassType().getFullyQualifiedName() + "." + method.getName() +
+                    "(" + method.getParameterTypes().stream().map(Type::toString)
+                    .collect(Collectors.joining(", ")) + ")";
+            CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, false);
             return false;
         } catch (Exception e) {
             log.error("Error checking coverage for method: {}", method.getName(), e);
@@ -507,7 +513,7 @@ public class CoverageFilter {
      * For constructors, if the caller extends the target, looks for super() calls OR implicit constructor calls.
      * For regular methods, also checks for super.methodName() calls.
      */
-    private static boolean isMethodCoveredInClass(File htmlFile, MethodSignature caller, 
+    private static boolean isMethodCoveredInClass(File htmlFile, MethodSignature caller,
                                                   MethodSignature target, String thirdPartyMethod) throws Exception {
         String className = thirdPartyMethod.substring(0, thirdPartyMethod.lastIndexOf('.'));
         String shortClassName = className.substring(className.lastIndexOf('.') + 1);

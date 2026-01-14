@@ -12,24 +12,30 @@ public class CoverageLogger {
 
     private static final File coverageFile = new File("coverage.json");
     private static final ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-    private static final Set<String> loggedMethods = Collections.synchronizedSet(new HashSet<>());
+    private static final Set<String> loggedPairs = Collections.synchronizedSet(new HashSet<>());
 
-    public static synchronized void logCoverage(String methodSignature, boolean isCovered) {
+    public static synchronized void logCoverage(String caller, String thirdPartyMethod, boolean isCovered) {
         try {
             List<Map<String, Object>> entries = new ArrayList<>();
             // If file exists, read existing entries
             if (coverageFile.exists()) {
                 try {
-                    entries = mapper.readValue(coverageFile, new TypeReference<List<Map<String, Object>>>() {});
+                    entries = mapper.readValue(coverageFile, new TypeReference<List<Map<String, Object>>>() {
+                    });
                     for (Map<String, Object> entry : entries) {
-                        loggedMethods.add((String) entry.get("method"));
+                        String callerKey = (String) entry.get("caller");
+                        String methodKey = (String) entry.get("thirdPartyMethod");
+                        loggedPairs.add(callerKey + "->" + methodKey);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
+            String pairKey = caller + "->" + thirdPartyMethod;
             // Add only if not already logged
-            if (loggedMethods.add(methodSignature)) {
+            if (loggedPairs.add(pairKey)) {
                 Map<String, Object> entry = new HashMap<>();
-                entry.put("method", methodSignature);
+                entry.put("caller", caller);
+                entry.put("thirdPartyMethod", thirdPartyMethod);
                 entry.put("covered", isCovered);
                 entries.add(entry);
 
