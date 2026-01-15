@@ -39,27 +39,24 @@ public class MethodExtractor {
      * @param sourceRootPath Path to the project source code root directory (optional, can be null). If provided, actual source code will be extracted instead of Jimple IR.
      * @param jacocoHtmlDirs List of JaCoCo HTML report directories to filter already covered methods (optional, can be empty).
      */
-    public static void process(String pathToJar, String reportPath, String packageName,
-                               Path packageMapPath, String sourceRootPath, List<File> jacocoHtmlDirs) {
+    public static void process(String pathToJar, String reportPath, String packageName, Path packageMapPath,
+                               String sourceRootPath, List<File> jacocoHtmlDirs, boolean enableAnalysisLogs) {
         // Start reading the jar with sootup. Here we use all the public methods as the entry points.
         // That means we don't plan to do anything (generate tests etc) for private methods.
         // Don't want any more complications with reflections and all.
+        // ToDo: Add the if condition with the enable-logs flag
+        // We analyze all third-party method calls in the entire project (including unreachable code)
+        // and log them for reference.
+        AllMethodCallAnalyzer.analyzeAndLogDetailed(pathToJar, packageName, packageMapPath);
         ignoredPrefixes = PackageMatcher.loadIgnoredPrefixes(packageName);
         JavaView view = createJavaView(pathToJar);
         Set<MethodSignature> entryPoints = detectEntryPoints(view, packageName);
         log.info("Found " + entryPoints.size() + " public methods as entry points.");
-        AnalysisResult result = analyzeReachability(view, entryPoints, packageMapPath, jacocoHtmlDirs, sourceRootPath);
-        // Write the three different output files
-        PathWriter.writeAllFormats(result, reportPath, sourceRootPath);
+        AnalysisResult result = analyzeReachability(view, entryPoints, packageMapPath, jacocoHtmlDirs, sourceRootPath,
+                enableAnalysisLogs);
+        // Write the main output file.
+        PathWriter.writeAllFormats(result, reportPath, sourceRootPath, enableAnalysisLogs);
         log.info("All analysis reports written successfully.");
-    }
-
-    /**
-     * Overloaded version without source root path for backward compatibility
-     * The jacocoHtmlDirs is also initialized as an empty list.
-     */
-    public static void process(String pathToJar, String reportPath, String packageName, Path packageMapPath) {
-        process(pathToJar, reportPath, packageName, packageMapPath, null, new ArrayList<>());
     }
 
     private static JavaView createJavaView(String pathToJar) {
@@ -68,7 +65,8 @@ public class MethodExtractor {
     }
 
     private static AnalysisResult analyzeReachability(JavaView view, Set<MethodSignature> entryPoints,
-                                                      Path packageMapPath, List<File> jacocoHtmlDirs, String sourceRootPath) {
+                                                      Path packageMapPath, List<File> jacocoHtmlDirs,
+                                                      String sourceRootPath, boolean enableAnalysisLogs) {
         List<ThirdPartyPath> thirdPartyPaths = new ArrayList<>();
         List<PathStats> allPathStats = new ArrayList<>();
         try {
@@ -79,7 +77,7 @@ public class MethodExtractor {
             // efficient than doing it the other way round, as there are usually much fewer third-party methods than
             // public methods.
             Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs =
-                    findAllThirdPartyMethodPairs(cg, packageMapPath, jacocoHtmlDirs);
+                    findAllThirdPartyMethodPairs(cg, packageMapPath, jacocoHtmlDirs, enableAnalysisLogs);
             log.info("Found {} third-party method call pairs in call graph", thirdPartyPairs.size());
             // Build reverse call graph for efficient backward traversal. Otherwise, it takes painfully long time to
             // run with the forward graph (from public methods to third party methods).
@@ -138,7 +136,9 @@ public class MethodExtractor {
                 }
             }
             log.info("Collected " + thirdPartyPaths.size() + " third-party paths.");
-            writePathStatsToJson(allPathStats);
+            if (enableAnalysisLogs) {
+                writePathStatsToJson(allPathStats);
+            }
         } catch (Exception e) {
             log.error("Failed to initialize call graph.", e);
         }
@@ -165,9 +165,10 @@ public class MethodExtractor {
      * Find all third-party method call pairs (caller -> third-party method) in the call graph
      */
     private static Set<Map.Entry<MethodSignature, MethodSignature>> findAllThirdPartyMethodPairs(
-            CallGraph cg, Path packageMapPath, List<File> jacocoHtmlDirs) {
+            CallGraph cg, Path packageMapPath, List<File> jacocoHtmlDirs, boolean enableAnalysisLogs) {
         // We do two iterations because we get coverage check in two steps. First, we register all to check if
         // the same class has multiple calls to the same third party method.
+        Set<Map.Entry<MethodSignature, MethodSignature>> allThirdPartyPairs = new HashSet<>();
         for (MethodSignature method : cg.getMethodSignatures()) {
             String fullClassName = method.getDeclClassType().getFullyQualifiedName();
             for (CallGraph.Call call : cg.callsFrom(method)) {
@@ -176,9 +177,12 @@ public class MethodExtractor {
                     String thirdPartyMethod = target.getDeclClassType().getFullyQualifiedName() + "."
                             + target.getName();
                     CoverageFilter.registerTargetCall(fullClassName, thirdPartyMethod);
+                    // Track all unique third-party call pairs
+                    allThirdPartyPairs.add(Map.entry(method, target));
                 }
             }
         }
+        log.info("Total unique third-party method call pairs in the call graph: {}", allThirdPartyPairs.size());
         // If a class only has one unique call to a third party method, we get coverage in the simple way by only
         // analysing the html files. If it has multiple calls to the same third party method, we need to analyze the
         // xml files.
@@ -187,7 +191,7 @@ public class MethodExtractor {
             for (CallGraph.Call call : cg.callsFrom(method)) {
                 MethodSignature target = call.getTargetMethodSignature();
                 if (isThirdPartyMethod(target, packageMapPath)) {
-                    if (CoverageFilter.isAlreadyCoveredByTests(method, target, jacocoHtmlDirs)) {
+                    if (CoverageFilter.isAlreadyCoveredByTests(method, target, jacocoHtmlDirs, enableAnalysisLogs)) {
                         continue;
                     }
                     thirdPartyPairs.add(Map.entry(method, target));
