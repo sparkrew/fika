@@ -52,7 +52,7 @@ public class CoverageFilter {
      * @return true if the method is covered by tests, false otherwise
      */
     public static boolean isAlreadyCoveredByTests(MethodSignature method, MethodSignature target,
-                                                  List<File> jacocoHtmlDirs) {
+                                                  List<File> jacocoHtmlDirs, boolean enableAnalysisLogs) {
         try {
             String fullClassName = method.getDeclClassType().getFullyQualifiedName();
             String simpleClassName = fullClassName.substring(fullClassName.lastIndexOf('.') + 1);
@@ -101,14 +101,18 @@ public class CoverageFilter {
                     String callerSignature = method.getDeclClassType().getFullyQualifiedName() + "." + method.getName() +
                             "(" + method.getParameterTypes().stream().map(Type::toString)
                             .collect(Collectors.joining(", ")) + ")";
-                    CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, true);
+                    if (enableAnalysisLogs) {
+                        CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, true);
+                    }
                     return true;
                 }
             }
             String callerSignature = method.getDeclClassType().getFullyQualifiedName() + "." + method.getName() +
                     "(" + method.getParameterTypes().stream().map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
-            CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, false);
+            if (enableAnalysisLogs) {
+                CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, false);
+            }
             return false;
         } catch (Exception e) {
             log.error("Error checking coverage for method: {}", method.getName(), e);

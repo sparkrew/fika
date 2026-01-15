@@ -124,7 +124,7 @@ class PathWriterTest {
                 </project>
                 """;
         Files.writeString(pomFile, pomContent);
-        PathWriter.writeAllFormats(result, outputFile.toString(), sourceRoot.toString());
+        PathWriter.writeAllFormats(result, outputFile.toString(), sourceRoot.toString(), false);
         Path fullMethodsFile = Path.of(outputFile.toString().replace(".json", "_full_methods.json"));
         assertTrue(Files.exists(fullMethodsFile), "Full methods output file should be created");
     }
@@ -134,7 +134,7 @@ class PathWriterTest {
         setUp();
         List<ThirdPartyPath> emptyPaths = new ArrayList<>();
         AnalysisResult result = new AnalysisResult(emptyPaths);
-        PathWriter.writeAllFormats(result, outputFile.toString(), null);
+        PathWriter.writeAllFormats(result, outputFile.toString(), null, false);
         Path fullMethodsFile = Path.of(outputFile.toString().replace(".json", "_full_methods.json"));
         assertTrue(Files.exists(fullMethodsFile));
         String content = Files.readString(fullMethodsFile);
@@ -148,7 +148,7 @@ class PathWriterTest {
         AnalysisResult result = new AnalysisResult(thirdPartyPaths);
         String validPath = outputFile.toString();
         assertDoesNotThrow(() ->
-                PathWriter.writeAllFormats(result, validPath, null)
+                PathWriter.writeAllFormats(result, validPath, null, false)
         );
     }
 }

@@ -25,9 +25,9 @@ public class PathWriter {
     /**
      * Write all three output formats from the analysis result.
      */
-    public static void writeAllFormats(AnalysisResult result, String basePath, String sourceRootPath) {
+    public static void writeAllFormats(AnalysisResult result, String basePath, String sourceRootPath, boolean enableAnalysisLogs) {
         String fullMethodsPath = basePath.replace(".json", "_full_methods.json");
-        writeFullMethodsFormat(result, fullMethodsPath, sourceRootPath);
+        writeFullMethodsFormat(result, fullMethodsPath, sourceRootPath, enableAnalysisLogs);
     }
 
     /**
@@ -48,7 +48,8 @@ public class PathWriter {
      * Write paths with full method bodies for all methods.
      * Enhanced to add tracking comments along the path.
      */
-    private static void writeFullMethodsFormat(AnalysisResult result, String outputPath, String sourceRootPath) {
+    private static void writeFullMethodsFormat(AnalysisResult result, String outputPath, String sourceRootPath,
+                                               boolean enableAnalysisLogs) {
         ObjectMapper mapper = new ObjectMapper();
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
         try {
@@ -119,7 +120,7 @@ public class PathWriter {
             log.info("Successfully wrote {} full methods paths to {}", fullMethodsPaths.size(),
                     outputFile.getAbsolutePath());
             // We write skipped paths to a separate file for analysis
-            if (!skippedPaths.isEmpty()) {
+            if (enableAnalysisLogs && !skippedPaths.isEmpty()) {
                 String skippedPathsPath = outputPath.replace("_full_methods.json", "_skipped_paths.json");
                 File skippedFile = new File(skippedPathsPath);
                 mapper.writeValue(skippedFile, Map.of("skippedPaths", skippedPaths));

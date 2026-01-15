@@ -96,7 +96,7 @@ class CoverageFilterTest {
     @Test
     void testClearCache_ClearsAllCaches() {
         setupMinimalMocks();
-        CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         CoverageFilter.clearCache();
         assertDoesNotThrow(CoverageFilter::clearCache);
@@ -107,7 +107,7 @@ class CoverageFilterTest {
         setupMinimalMocks();
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         assertDoesNotThrow(() ->
-                CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs)
+                CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false)
         );
     }
 
@@ -117,14 +117,14 @@ class CoverageFilterTest {
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute");
         assertDoesNotThrow(() ->
-                CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs)
+                CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false)
         );
     }
 
     @Test
     void testIsAlreadyCoveredByTests_NoHtmlFile() {
         setupMinimalMocks();
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         assertFalse(result, "Should return false when HTML file doesn't exist");
     }
 
@@ -143,7 +143,7 @@ class CoverageFilterTest {
                 </html>
                 """;
         writeHtmlFile(packageDir, "TestClass", htmlContent);
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         assertTrue(result, "Should detect covered method call");
     }
 
@@ -161,7 +161,7 @@ class CoverageFilterTest {
                 </html>
                 """;
         writeHtmlFile(packageDir, "TestClass", htmlContent);
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         assertFalse(result, "Should return false when target method is not called");
     }
 
@@ -179,7 +179,7 @@ class CoverageFilterTest {
                 </html>
                 """;
         writeHtmlFile(packageDir, "TestClass", htmlContent);
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         assertFalse(result, "Should return false when target call is not covered (nc class)");
     }
 
@@ -201,7 +201,7 @@ class CoverageFilterTest {
                 </html>
                 """;
         writeHtmlFile(packageDir, "TestClass", htmlContent);
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, constructorMethod, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, constructorMethod, jacocoHtmlDirs, false);
         assertTrue(result, "Constructor call should be detected as covered");
     }
 
@@ -237,7 +237,7 @@ class CoverageFilterTest {
                 </report>
                 """;
         Files.writeString(xmlFile, xmlContent);
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         assertTrue(result, "Should use XML report for precise checking with multiple calls");
     }
 
@@ -255,8 +255,8 @@ class CoverageFilterTest {
                 </html>
                 """;
         writeHtmlFile(packageDir, "TestClass", htmlContent);
-        boolean result1 = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
-        boolean result2 = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        boolean result1 = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
+        boolean result2 = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         assertTrue(result1, "First call should find coverage");
         assertTrue(result2, "Second call should return cached result");
     }
@@ -265,7 +265,7 @@ class CoverageFilterTest {
     void testIsAlreadyCoveredByTests_EmptyJacocoDirectories() throws IOException {
         setupMinimalMocks();
         List<File> emptyDirs = new ArrayList<>();
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, emptyDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, emptyDirs, false);
         assertFalse(result, "Should return false when no JaCoCo directories provided");
     }
 
@@ -283,7 +283,7 @@ class CoverageFilterTest {
                 </html>
                 """;
         writeHtmlFile(packageDir, "TestClass", htmlContent);
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, thirdPartyMethod, jacocoHtmlDirs, false);
         assertTrue(result, "Should detect partially covered method (fc bfc) as covered");
     }
 
@@ -307,7 +307,7 @@ class CoverageFilterTest {
                 </html>
                 """;
         writeHtmlFile(packageDir, "TestClass", htmlContent);
-        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, methodWithParams, jacocoHtmlDirs);
+        boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, methodWithParams, jacocoHtmlDirs, false);
         assertTrue(result, "Should detect method call with parameters");
     }
 }

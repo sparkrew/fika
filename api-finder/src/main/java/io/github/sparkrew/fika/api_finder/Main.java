@@ -64,7 +64,8 @@ public class Main {
         @CommandLine.Option(
                 names = {"-s", "--source-code-path"},
                 paramLabel = "SOURCE-CODE-PATH",
-                description = "The path to the source code root directory of the project under consideration."
+                description = "The path to the source code root directory of the project under consideration.",
+                required = true
         )
         String sourceCodePath;
 
@@ -77,14 +78,18 @@ public class Main {
         )
         List<Path> jacocoFiles;
 
+        @CommandLine.Option(
+                names = {"-a", "--enable-analysis"},
+                paramLabel = "ENABLE-ANALYSIS",
+                description = "Enable detailed analysis logging",
+                defaultValue = "true"
+        )
+        boolean enableAnalysisLogs;
+
         @Override
         public void run() {
-            if (sourceCodePath == null) {
-                log.warn("No source code path provided, skipping source code extraction.");
-                MethodExtractor.process(jarPath, reportFile, packageName, packageMapPath);
-            }
             MethodExtractor.process(jarPath, reportFile, packageName, packageMapPath, sourceCodePath,
-                    jacocoFiles.stream().map(Path::toFile).toList());
+                        jacocoFiles.stream().map(Path::toFile).toList(), enableAnalysisLogs);
         }
     }
 }
