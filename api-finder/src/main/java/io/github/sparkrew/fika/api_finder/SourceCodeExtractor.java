@@ -9,10 +9,7 @@ import spoon.MavenLauncher;
 import spoon.reflect.CtModel;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtStatement;
-import spoon.reflect.declaration.CtConstructor;
-import spoon.reflect.declaration.CtElement;
-import spoon.reflect.declaration.CtMethod;
-import spoon.reflect.declaration.CtType;
+import spoon.reflect.declaration.*;
 import spoon.reflect.visitor.CtScanner;
 
 import java.util.*;
@@ -274,7 +271,7 @@ public class SourceCodeExtractor {
         var staticFields = ctType.getFields().stream()
                 .filter(field -> field.getModifiers().contains(spoon.reflect.declaration.ModifierKind.STATIC))
                 .filter(field -> field.getDefaultExpression() != null)
-                .collect(Collectors.toList());
+                .toList();
         if (staticBlocks.isEmpty() && staticFields.isEmpty()) {
             log.warn("No static initializer or static field initializations found for {}", 
                     ctType.getQualifiedName());
@@ -443,7 +440,7 @@ public class SourceCodeExtractor {
      */
     private static List<String> extractFieldDeclarations(CtType<?> ctType) {
         List<String> fieldDeclarations = ctType.getFields().stream()
-                .map(field -> field.prettyprint())
+                .map(CtElement::prettyprint)
                 .collect(Collectors.toList());
         log.debug("Extracted {} field declarations from {}", fieldDeclarations.size(), ctType.getQualifiedName());
         return fieldDeclarations;
@@ -454,7 +451,7 @@ public class SourceCodeExtractor {
      */
     private static Set<String> extractFieldNames(CtType<?> ctType) {
         Set<String> fieldNames = ctType.getFields().stream()
-                .map(field -> field.getSimpleName())
+                .map(CtNamedElement::getSimpleName)
                 .collect(Collectors.toSet());
         log.debug("Extracted {} field names from {}", fieldNames.size(), ctType.getQualifiedName());
         return fieldNames;
@@ -888,9 +885,7 @@ public class SourceCodeExtractor {
         @Override
         public <T, A extends T> void visitCtAssignment(spoon.reflect.code.CtAssignment<T, A> assignment) {
             if (modifies) return;
-            if (assignment.getAssigned() instanceof spoon.reflect.code.CtFieldWrite) {
-                spoon.reflect.code.CtFieldWrite<?> fieldWrite = 
-                    (spoon.reflect.code.CtFieldWrite<?>) assignment.getAssigned();
+            if (assignment.getAssigned() instanceof spoon.reflect.code.CtFieldWrite<?> fieldWrite) {
                 String fieldName = fieldWrite.getVariable().getSimpleName();
                 if (fieldNames.contains(fieldName)) {
                     modifies = true;
@@ -903,9 +898,7 @@ public class SourceCodeExtractor {
         @Override
         public <T> void visitCtInvocation(CtInvocation<T> invocation) {
             if (modifies) return;
-            if (invocation.getTarget() instanceof spoon.reflect.code.CtFieldRead) {
-                spoon.reflect.code.CtFieldRead<?> fieldRead = 
-                    (spoon.reflect.code.CtFieldRead<?>) invocation.getTarget();
+            if (invocation.getTarget() instanceof spoon.reflect.code.CtFieldRead<?> fieldRead) {
                 String fieldName = fieldRead.getVariable().getSimpleName();
                 if (fieldNames.contains(fieldName)) {
                     // This is potentially a method call on a field (e.g., list.add(...), map.put(...))

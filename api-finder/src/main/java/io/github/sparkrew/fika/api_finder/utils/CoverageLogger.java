@@ -20,7 +20,7 @@ public class CoverageLogger {
             // If file exists, read existing entries
             if (coverageFile.exists()) {
                 try {
-                    entries = mapper.readValue(coverageFile, new TypeReference<List<Map<String, Object>>>() {
+                    entries = mapper.readValue(coverageFile, new TypeReference<>() {
                     });
                     for (Map<String, Object> entry : entries) {
                         String callerKey = (String) entry.get("caller");

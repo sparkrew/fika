@@ -72,7 +72,6 @@ public class CoverageFilter {
                     + "(" + target.getParameterTypes().stream()
                     .map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
-            String thirdPartyMethodFull = thirdPartyMethod;
             // Check if this class has multiple calls to the same target OR if the method has overloads
             // We need precise checking for overloads because HTML doesn't show parameter types
             boolean needsPreciseCheck = hasMultipleTargetCalls(fullClassName, thirdPartyMethod)
@@ -115,7 +114,7 @@ public class CoverageFilter {
                             "(" + method.getParameterTypes().stream().map(Type::toString)
                             .collect(Collectors.joining(", ")) + ")";
                     if (enableAnalysisLogs) {
-                        CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, true);
+                        CoverageLogger.logCoverage(callerSignature, thirdPartyMethod, true);
                     }
                     return true;
                 }
@@ -124,7 +123,7 @@ public class CoverageFilter {
                     "(" + method.getParameterTypes().stream().map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
             if (enableAnalysisLogs) {
-                CoverageLogger.logCoverage(callerSignature, thirdPartyMethodFull, false);
+                CoverageLogger.logCoverage(callerSignature, thirdPartyMethod, false);
             }
             return false;
         } catch (Exception e) {

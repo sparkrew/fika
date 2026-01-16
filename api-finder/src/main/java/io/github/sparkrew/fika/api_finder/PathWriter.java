@@ -31,20 +31,6 @@ public class PathWriter {
     }
 
     /**
-     * Write path statistics (to justify the decision to select the shortest path) to a JSON file for analysis
-     */
-    public static void writePathStatsToJson(List<PathStats> stats) {
-        String statsPath = "path-stats.json";
-        try (FileWriter writer = new FileWriter(statsPath)) {
-            Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            gson.toJson(stats, writer);
-            log.info("Path statistics written to: {}", statsPath);
-        } catch (IOException e) {
-            log.error("Failed to write path statistics to JSON", e);
-        }
-    }
-
-    /**
      * Write paths with full method bodies for all methods.
      * Enhanced to add tracking comments along the path.
      */

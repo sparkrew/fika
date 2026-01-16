@@ -1,8 +1,6 @@
 package io.github.sparkrew.fika.api_finder;
 
 import io.github.sparkrew.fika.api_finder.model.AnalysisResult;
-import io.github.sparkrew.fika.api_finder.model.PathNode;
-import io.github.sparkrew.fika.api_finder.model.PathStats;
 import io.github.sparkrew.fika.api_finder.model.ThirdPartyPath;
 import io.github.sparkrew.fika.api_finder.utils.PackageMatcher;
 import org.slf4j.Logger;
@@ -20,8 +18,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
-
-import static io.github.sparkrew.fika.api_finder.PathWriter.writePathStatsToJson;
 
 public class MethodExtractor {
 
@@ -68,7 +64,6 @@ public class MethodExtractor {
                                                       Path packageMapPath, List<File> jacocoHtmlDirs,
                                                       String sourceRootPath, boolean enableAnalysisLogs) {
         List<ThirdPartyPath> thirdPartyPaths = new ArrayList<>();
-        List<PathStats> allPathStats = new ArrayList<>();
         try {
             CallGraphAlgorithm cha = new ClassHierarchyAnalysisAlgorithm(view);
             CallGraph cg = cha.initialize(new ArrayList<>(entryPoints));
@@ -136,29 +131,10 @@ public class MethodExtractor {
                 }
             }
             log.info("Collected " + thirdPartyPaths.size() + " third-party paths.");
-            if (enableAnalysisLogs) {
-                writePathStatsToJson(allPathStats);
-            }
         } catch (Exception e) {
             log.error("Failed to initialize call graph.", e);
         }
         return new AnalysisResult(thirdPartyPaths);
-    }
-
-    /**
-     * Check if a path is direct - meaning only the target method is third-party,
-     * all intermediate methods are from the project itself
-     */
-    private static boolean isDirectPath(List<MethodSignature> path, Path packageMapPath) {
-        if (path.size() <= 1) return true;
-        // Check all methods except the last one - they should not be third-party
-        for (int i = 0; i < path.size() - 1; i++) {
-            if (isThirdPartyMethod(path.get(i), packageMapPath)) {
-                return false;
-            }
-        }
-        // The last method should be third-party
-        return isThirdPartyMethod(path.get(path.size() - 1), packageMapPath);
     }
 
     /**
@@ -269,156 +245,6 @@ public class MethodExtractor {
             }
         }
         return completePaths;
-    }
-
-    /**
-     * Find the shortest direct path from start to target where only the target is third-party.
-     * Uses BFS to find the shortest path.
-     */
-    private static List<MethodSignature> findShortestDirectPath(
-            CallGraph cg,
-            MethodSignature start,
-            MethodSignature target,
-            Path packageMapPath) {
-        Deque<List<MethodSignature>> queue = new ArrayDeque<>();
-        Set<MethodSignature> visited = new HashSet<>();
-        queue.add(List.of(start));
-        visited.add(start);
-        while (!queue.isEmpty()) {
-            List<MethodSignature> path = queue.poll();
-            MethodSignature last = path.get(path.size() - 1);
-            for (CallGraph.Call call : cg.callsFrom(last)) {
-                MethodSignature next = call.getTargetMethodSignature();
-                if (next.equals(target)) {
-                    // Found the target - construct and return the complete path
-                    List<MethodSignature> completePath = new ArrayList<>(path);
-                    completePath.add(next);
-                    // Verify this is a direct path (only target is third-party).
-                    // Here, we do not consider the paths that have third party methods in between.
-                    if (isDirectPath(completePath, packageMapPath)) {
-                        return completePath;
-                    }
-                }
-                // Only continue if this is not a third-party method and not visited
-                if (!isThirdPartyMethod(next, packageMapPath) && visited.add(next)) {
-                    List<MethodSignature> newPath = new ArrayList<>(path);
-                    newPath.add(next);
-                    queue.add(newPath);
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Count all paths and their statistics from start to target without storing them.
-     * Uses BFS with path length tracking to efficiently compute statistics.
-     *
-     * @return PathStats containing total count and length statistics, or null if no paths exist
-     */
-    private static PathStats countPathsAndStats(
-            CallGraph cg,
-            MethodSignature start,
-            MethodSignature target,
-            Path packageMapPath,
-            int maxDepth) {
-        // Queue stores: current method and current path length
-        Deque<PathNode> queue = new ArrayDeque<>();
-        // Simple visited set per level to avoid infinite loops within same depth
-        Map<Integer, Set<MethodSignature>> visitedPerDepth = new HashMap<>();
-        int totalPaths = 0;
-        int shortestLength = Integer.MAX_VALUE;
-        int longestLength = 0;
-        queue.add(new PathNode(start, 1));
-        visitedPerDepth.computeIfAbsent(1, k -> new HashSet<>()).add(start);
-        while (!queue.isEmpty()) {
-            PathNode current = queue.poll();
-            MethodSignature currentMethod = current.method();
-            int currentLength = current.pathLength();
-            // Stop exploring if we have exceeded max depth (only if maxDepth is set)
-            if (maxDepth > 0 && currentLength > maxDepth) {
-                continue;
-            }
-            for (CallGraph.Call call : cg.callsFrom(currentMethod)) {
-                MethodSignature next = call.getTargetMethodSignature();
-                int nextLength = currentLength + 1;
-                if (next.equals(target)) {
-                    // Found a path to target
-                    totalPaths++;
-                    shortestLength = Math.min(shortestLength, nextLength);
-                    longestLength = Math.max(longestLength, nextLength);
-                    // Don't continue from here since we reached the target
-                    continue;
-                }
-                // Only continue if this is not a third-party method
-                // Check depth limit only if maxDepth is specified (> 0)
-                if (!isThirdPartyMethod(next, packageMapPath)) {
-                    boolean withinDepthLimit = (maxDepth == 0) || (nextLength <= maxDepth);
-                    if (withinDepthLimit) {
-                        // Check if we have already visited this method at this depth
-                        Set<MethodSignature> visitedAtThisDepth = visitedPerDepth.get(nextLength);
-                        if (visitedAtThisDepth == null || !visitedAtThisDepth.contains(next)) {
-                            visitedPerDepth.computeIfAbsent(nextLength, k -> new HashSet<>()).add(next);
-                            queue.add(new PathNode(next, nextLength));
-                        }
-                    }
-                }
-            }
-        }
-        if (totalPaths == 0) {
-            return null;
-        }
-        // Use full signatures with parameters to properly identify overloaded methods
-        return new PathStats(
-                getFilteredMethodSignatureWithParams(start),
-                getFilteredMethodSignatureWithParams(target),
-                totalPaths,
-                shortestLength,
-                longestLength
-        );
-    }
-
-    /**
-     * Modified version that logs statistics instead of finding shortest path.
-     * This can replace the call to findShortestDirectPath in analyzeReachability.
-     */
-    private static List<MethodSignature> findShortestDirectPathWithStats(
-            CallGraph cg,
-            MethodSignature start,
-            MethodSignature target,
-            Path packageMapPath,
-            List<PathStats> allStats) {
-        // Get statistics about all paths, Can add a depth to overcome memory problems
-        PathStats stats = countPathsAndStats(cg, start, target, packageMapPath, 19);
-        if (stats != null) {
-            allStats.add(stats);
-        }
-
-        // Find and return the shortest direct path as before
-        Deque<List<MethodSignature>> queue = new ArrayDeque<>();
-        Set<MethodSignature> visited = new HashSet<>();
-        queue.add(List.of(start));
-        visited.add(start);
-        while (!queue.isEmpty()) {
-            List<MethodSignature> path = queue.poll();
-            MethodSignature last = path.get(path.size() - 1);
-            for (CallGraph.Call call : cg.callsFrom(last)) {
-                MethodSignature next = call.getTargetMethodSignature();
-                if (next.equals(target)) {
-                    List<MethodSignature> completePath = new ArrayList<>(path);
-                    completePath.add(next);
-                    if (isDirectPath(completePath, packageMapPath)) {
-                        return completePath;
-                    }
-                }
-                if (!isThirdPartyMethod(next, packageMapPath) && visited.add(next)) {
-                    List<MethodSignature> newPath = new ArrayList<>(path);
-                    newPath.add(next);
-                    queue.add(newPath);
-                }
-            }
-        }
-        return null;
     }
 
     /**
