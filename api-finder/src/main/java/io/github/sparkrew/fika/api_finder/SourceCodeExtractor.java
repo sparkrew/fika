@@ -116,7 +116,6 @@ public class SourceCodeExtractor {
     /**
      * Extract a regular method by name and parameter types and adds comments.
      * Handles method overloading by matching the full signature.
-     * SpoonMethodFinder will search in the superclass hierarchy if needed.
      */
     private static String extractRegularMethod(CtType<?> ctType, String methodName,
                                                MethodSignature methodSig, MethodSignature nextMethodSig) {

@@ -9,7 +9,6 @@ import spoon.reflect.declaration. CtType;
 import sootup.core.signatures.MethodSignature;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -83,8 +82,7 @@ public class SpoonMethodFinder {
                 .filter(m -> m.getSimpleName().equals(methodName))
                 .toList();
         if (candidateMethods.isEmpty()) {
-            // Try to find the method in the superclass hierarchy
-            return findMethodInSuperclass(ctType, methodName, methodSig);
+            return null;
         }
         // If there's only one method with this name, we are lucky, just return it
         if (candidateMethods.size() == 1) {
@@ -112,111 +110,6 @@ public class SpoonMethodFinder {
         }
         // We are really unlucky!  After all this effort, we just have to return the first method.
         log.debug("Multiple overloaded methods found for {}, returning first one", methodName);
-        return candidateMethods.get(0);
-    }
-
-    /**
-     * Find a method in the superclass hierarchy (superclasses and interfaces).
-     * Recursively searches parent classes and implemented interfaces.
-     *
-     * @param ctType     The type to start searching from
-     * @param methodName The name of the method to find
-     * @param methodSig  The method signature to match
-     * @return The found method, or null if not found in the hierarchy
-     */
-    private static CtMethod<?> findMethodInSuperclass(CtType<?> ctType, String methodName,
-                                                        MethodSignature methodSig) {
-        if (ctType == null) {
-            return null;
-        }
-        // Check superclass
-        if (ctType.getSuperclass() != null) {
-            String superClassName = ctType.getSuperclass().getQualifiedName();
-            try {
-                CtType<?> superType = findType(ctType.getFactory().getModel(), superClassName);
-                if (superType != null) {
-                    // Try to find the method in the superclass first (non-recursive)
-                    var candidateMethods = superType.getMethods().stream()
-                            .filter(m -> m.getSimpleName().equals(methodName))
-                            .toList();
-                    if (!candidateMethods.isEmpty()) {
-                        CtMethod<?> method = selectBestMethod(candidateMethods, methodSig);
-                        if (method != null) {
-                            log.debug("Found method {} in superclass {}", methodName, superClassName);
-                            return method;
-                        }
-                    }
-                    // Recursively search in the superclass's hierarchy
-                    CtMethod<?> method = findMethodInSuperclass(superType, methodName, methodSig);
-                    if (method != null) {
-                        return method;
-                    }
-                }
-            } catch (Exception e) {
-                log.trace("Could not search superclass {}: {}", superClassName, e.getMessage());
-            }
-        }
-        // Check implemented interfaces (which may have default methods)
-        java.util.Set<spoon.reflect.reference.CtTypeReference<?>> interfaces = ctType.getSuperInterfaces();
-        for (spoon.reflect.reference.CtTypeReference<?> interfaceRef : interfaces) {
-            if (interfaceRef == null) continue;
-            String interfaceName = interfaceRef.getQualifiedName();
-            try {
-                CtType<?> interfaceType = findType(ctType.getFactory().getModel(), interfaceName);
-                if (interfaceType != null) {
-                    // Try to find the method in the interface first (non-recursive)
-                    var candidateMethods = interfaceType.getMethods().stream()
-                            .filter(m -> m.getSimpleName().equals(methodName))
-                            .toList();
-                    if (!candidateMethods.isEmpty()) {
-                        CtMethod<?> method = selectBestMethod(candidateMethods, methodSig);
-                        if (method != null) {
-                            log.debug("Found method {} in interface {}", methodName, interfaceName);
-                            return method;
-                        }
-                    }
-                    // Recursively search in the interface's hierarchy
-                    CtMethod<?> method = findMethodInSuperclass(interfaceType, methodName, methodSig);
-                    if (method != null) {
-                        return method;
-                    }
-                }
-            } catch (Exception e) {
-                log.trace("Could not search interface {}: {}", interfaceName, e.getMessage());
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Select the best matching method from a list of candidates.
-     * Helper method for superclass search.
-     */
-    private static CtMethod<?> selectBestMethod(List<CtMethod<?>> candidateMethods, MethodSignature methodSig) {
-        if (candidateMethods.isEmpty()) {
-            return null;
-        }
-        if (candidateMethods.size() == 1) {
-            return candidateMethods.get(0);
-        }
-        // Try to match by parameter count and types
-        int paramCount = methodSig.getParameterTypes().size();
-        var paramTypes = methodSig.getParameterTypes();
-        Optional<CtMethod<?>> exactMatch = candidateMethods.stream()
-                .filter(m -> m.getParameters().size() == paramCount)
-                .filter(m -> parametersMatch(m, paramTypes))
-                .findFirst();
-        if (exactMatch.isPresent()) {
-            return exactMatch.get();
-        }
-        // Fall back to matching by parameter count only
-        Optional<CtMethod<?>> countMatch = candidateMethods.stream()
-                .filter(m -> m.getParameters().size() == paramCount)
-                .findFirst();
-        if (countMatch.isPresent()) {
-            return countMatch.get();
-        }
-        // Return first as last resort
         return candidateMethods.get(0);
     }
 
