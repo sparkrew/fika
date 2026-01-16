@@ -57,8 +57,7 @@ public class AllMethodCallAnalyzer {
                 Set<Map.Entry<MethodSignature, MethodSignature>> methodCallPairs = new HashSet<>();
                 try {
                     for (var stmt : method.getBody().getStmts()) {
-                        if (stmt instanceof InvokableStmt) {
-                            InvokableStmt invokableStmt = (InvokableStmt) stmt;
+                        if (stmt instanceof InvokableStmt invokableStmt) {
                             invokableStmt.getInvokeExpr().ifPresent(invokeExpr -> {
                                 MethodSignature targetSignature = invokeExpr.getMethodSignature();
                                 if (isThirdPartyMethod(targetSignature, ignoredPrefixes, packageMapPath)) {
@@ -133,11 +132,12 @@ public class AllMethodCallAnalyzer {
             ObjectMapper mapper = new ObjectMapper();
             
             // Convert call pairs to a more readable format
+            // Use full signatures with parameters to properly distinguish overloaded methods
             List<Map<String, String>> formattedPairs = callPairs.stream()
                 .map(entry -> {
                     Map<String, String> pair = new HashMap<>();
-                    pair.put("caller", MethodExtractor.getFilteredMethodSignature(entry.getKey()));
-                    pair.put("thirdPartyMethod", MethodExtractor.getFilteredMethodSignature(entry.getValue()));
+                    pair.put("caller", MethodExtractor.getFilteredMethodSignatureWithParams(entry.getKey()));
+                    pair.put("thirdPartyMethod", MethodExtractor.getFilteredMethodSignatureWithParams(entry.getValue()));
                     return pair;
                 })
                 .sorted(Comparator.comparing(p -> p.get("caller")))

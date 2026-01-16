@@ -66,15 +66,17 @@ public class CoverageFilter {
             String fullClassName = method.getDeclClassType().getFullyQualifiedName();
             String simpleClassName = fullClassName.substring(fullClassName.lastIndexOf('.') + 1);
             String packageName = extractPackageName(fullClassName);
+            // Use full signature with parameters to handle method overloading
             String thirdPartyMethod = target.getDeclClassType().getFullyQualifiedName() + "."
-                    + target.getName();
-            String thirdPartyMethodFull = target.getDeclClassType().getFullyQualifiedName()
-                    + "." + target.getName()
+                    + target.getName()
                     + "(" + target.getParameterTypes().stream()
                     .map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
-            // Check if this class has multiple calls to the same target
-            boolean needsPreciseCheck = hasMultipleTargetCalls(fullClassName, thirdPartyMethod);
+            String thirdPartyMethodFull = thirdPartyMethod;
+            // Check if this class has multiple calls to the same target OR if the method has overloads
+            // We need precise checking for overloads because HTML doesn't show parameter types
+            boolean needsPreciseCheck = hasMultipleTargetCalls(fullClassName, thirdPartyMethod)
+                    || methodHasOverloads(fullClassName, thirdPartyMethod);
             for (File dir : jacocoHtmlDirs) {
                 File htmlFile = dir.toPath()
                         .resolve(packageName)
@@ -85,7 +87,11 @@ public class CoverageFilter {
                     continue;
                 }
                 String htmlFilePath = htmlFile.getAbsolutePath();
-                String cacheKey = htmlFilePath + "|" + method.getName() + "|" + thirdPartyMethod;
+                // Use full signature with params for cache key to handle method overloading
+                String methodSignature = method.getName() + "(" + method.getParameterTypes().stream()
+                        .map(Type::toString)
+                        .collect(Collectors.joining(", ")) + ")";
+                String cacheKey = htmlFilePath + "|" + methodSignature + "|" + thirdPartyMethod;
                 // Check cache first
                 Map<String, Boolean> fileCache = coverageCache.get(htmlFilePath);
                 if (fileCache != null && fileCache.containsKey(cacheKey)) {
@@ -93,12 +99,10 @@ public class CoverageFilter {
                     return fileCache.get(cacheKey);
                 }
                 boolean isCovered;
-                // We do this check because if we only use the HTML files, when there are multiple calls to the same
-                // third party method within one class, we cannot determine whether the actual target we are looking
-                // for is covered.
+                // We use precise XML checking when:
+                // 1. There are multiple calls to the same method (with same signature) in one class
+                // 2. The method has overloads (different parameter types) - HTML can't distinguish them
                 if (needsPreciseCheck) {
-                    log.debug("Multiple calls detected, using precise XML checking for {} in method {} in class {}",
-                            thirdPartyMethod, method.getName(), method.getDeclClassType().getFullyQualifiedName());
                     isCovered = isPreciseMethodCovered(htmlFile, dir, method, target, thirdPartyMethod);
                 } else {
                     // Quick HTML check is sufficient (only one call in entire class)
@@ -147,6 +151,7 @@ public class CoverageFilter {
      * This is called from the MethodExtractor when the methods are processed first. So we don't have to do it again.
      * This allows the filter to use quick HTML checks when there's only one call,
      * and precise XML checks when there are multiple calls to the same target in a class.
+     * NOTE: thirdPartyMethod should include parameters to properly handle method overloading.
      */
     public static void registerTargetCall(String fullClassName, String thirdPartyMethod) {
         targetCallCountCache.computeIfAbsent(fullClassName, k -> new ConcurrentHashMap<>())
@@ -154,10 +159,31 @@ public class CoverageFilter {
     }
 
     /**
+     * Check if a method name (without parameters) has multiple overloaded versions registered.
+     * This helps determine if we need precise checking even for single calls.
+     */
+    private static boolean methodHasOverloads(String fullClassName, String thirdPartyMethodWithParams) {
+        Map<String, Integer> classTargets = targetCallCountCache.get(fullClassName);
+        if (classTargets == null || classTargets.isEmpty()) {
+            return false;
+        }
+        // Extract base method signature (class.method without parameters)
+        String baseSignature = thirdPartyMethodWithParams.substring(0, thirdPartyMethodWithParams.indexOf('('));
+        // Count how many registered methods start with this base signature
+        long overloadCount = classTargets.keySet().stream()
+                .filter(key -> key.startsWith(baseSignature + "("))
+                .count();
+        if (overloadCount > 1) {
+            log.info("Method {} has {} overloads", baseSignature, overloadCount);
+        }
+        return overloadCount > 1;
+    }
+
+    /**
      * Performs precise coverage checking using HTML + XML reports.
      * Gets line numbers from HTML where the target method is called and gets covered line numbers from XML for
      * the specific method. Then, checks if there's any intersection.
-     * If method not found in current class, recursively checks superclass.
+     * For overloaded methods, this is the only reliable way to check coverage since HTML doesn't show parameter types.
      */
     private static boolean isPreciseMethodCovered(File htmlFile, File jacocoDir,
                                                   MethodSignature method, MethodSignature target,
@@ -165,6 +191,7 @@ public class CoverageFilter {
         String fullClassName = method.getDeclClassType().getFullyQualifiedName();
 
         // Get line numbers where target is called (from HTML)
+        // Note: For overloaded methods, this may return lines for ALL overloads since HTML doesn't distinguish
         Set<Integer> targetCallLines = getTargetCallLines(htmlFile, method, target);
         if (targetCallLines.isEmpty()) {
             log.warn("No lines found calling target {} in class {}", thirdPartyMethod, fullClassName);
@@ -258,7 +285,11 @@ public class CoverageFilter {
      */
     private static Set<Integer> getTargetCallLines(File htmlFile, MethodSignature caller, MethodSignature target) throws Exception {
         String htmlFilePath = htmlFile.getAbsolutePath();
-        String targetKey = target.getDeclClassType().getFullyQualifiedName() + "." + target.getName();
+        // Use full signature with params to handle method overloading
+        String targetKey = target.getDeclClassType().getFullyQualifiedName() + "." + target.getName()
+                + "(" + target.getParameterTypes().stream()
+                .map(sootup.core.types.Type::toString)
+                .collect(java.util.stream.Collectors.joining(", ")) + ")";
         Map<String, Set<Integer>> fileCache = htmlLineCache.get(htmlFilePath);
         if (fileCache != null && fileCache.containsKey(targetKey)) {
             return fileCache.get(targetKey);
@@ -556,9 +587,14 @@ public class CoverageFilter {
      */
     private static boolean isMethodCoveredInClass(File htmlFile, MethodSignature caller,
                                                   MethodSignature target, String thirdPartyMethod) throws Exception {
+        // thirdPartyMethod now includes parameters, so we need to extract just the method name
         String className = thirdPartyMethod.substring(0, thirdPartyMethod.lastIndexOf('.'));
         String shortClassName = className.substring(className.lastIndexOf('.') + 1);
-        String methodName = thirdPartyMethod.substring(thirdPartyMethod.lastIndexOf('.') + 1);
+        String methodNameWithParams = thirdPartyMethod.substring(thirdPartyMethod.lastIndexOf('.') + 1);
+        // Extract method name without parameters
+        String methodName = methodNameWithParams.contains("(") 
+                ? methodNameWithParams.substring(0, methodNameWithParams.indexOf('('))
+                : methodNameWithParams;
         // Check if this is a child-to-parent constructor call case
         boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, target);
         // Get the caller's simple class name for implicit constructor detection

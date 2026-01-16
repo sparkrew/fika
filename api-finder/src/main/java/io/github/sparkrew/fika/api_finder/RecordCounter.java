@@ -37,7 +37,7 @@ public class RecordCounter {
             int methodConditions = countConditionsInMethod(methodSig, sourceRootPath);
             totalConditions += methodConditions;
             log.trace("Method {} has {} conditions",
-                    MethodExtractor.getFilteredMethodSignature(methodSig), methodConditions);
+                    MethodExtractor.getFilteredMethodSignatureWithParams(methodSig), methodConditions);
         }
         log.debug("Path has total {} conditions across {} methods", totalConditions, path.size() - 1);
         return totalConditions;

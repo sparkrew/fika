@@ -174,8 +174,12 @@ public class MethodExtractor {
             for (CallGraph.Call call : cg.callsFrom(method)) {
                 MethodSignature target = call.getTargetMethodSignature();
                 if (isThirdPartyMethod(target, packageMapPath)) {
+                    // Use full signature with parameters to handle method overloading
                     String thirdPartyMethod = target.getDeclClassType().getFullyQualifiedName() + "."
-                            + target.getName();
+                            + target.getName()
+                            + "(" + target.getParameterTypes().stream()
+                            .map(sootup.core.types.Type::toString)
+                            .collect(java.util.stream.Collectors.joining(", ")) + ")";
                     CoverageFilter.registerTargetCall(fullClassName, thirdPartyMethod);
                     // Track all unique third-party call pairs
                     allThirdPartyPairs.add(Map.entry(method, target));
@@ -364,9 +368,10 @@ public class MethodExtractor {
         if (totalPaths == 0) {
             return null;
         }
+        // Use full signatures with parameters to properly identify overloaded methods
         return new PathStats(
-                getFilteredMethodSignature(start),
-                getFilteredMethodSignature(target),
+                getFilteredMethodSignatureWithParams(start),
+                getFilteredMethodSignatureWithParams(target),
                 totalPaths,
                 shortestLength,
                 longestLength
@@ -416,10 +421,17 @@ public class MethodExtractor {
         return null;
     }
 
-    public static String getFilteredMethodSignature(MethodSignature method) {
+    /**
+     * Get filtered method signature WITH parameter types to properly handle method overloading.
+     * This should be used when we need to uniquely identify methods that may be overloaded.
+     */
+    public static String getFilteredMethodSignatureWithParams(MethodSignature method) {
         String className = filterName(method.getDeclClassType().getFullyQualifiedName());
         String methodName = filterName(method.getName());
-        return className + "." + methodName;
+        String params = method.getParameterTypes().stream()
+                .map(type -> filterName(type.toString()))
+                .collect(java.util.stream.Collectors.joining(", "));
+        return className + "." + methodName + "(" + params + ")";
     }
 
     private static String filterName(String name) {

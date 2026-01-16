@@ -69,18 +69,19 @@ public class PathWriter {
                 String testTemplate = TestTemplateGenerator.generateTestTemplate(tp);
                 int conditionCount = RecordCounter.countConditionsInPath(tp.path(), sourceRootPath);
                 log.debug("Path to {} has {} conditions",
-                        MethodExtractor.getFilteredMethodSignature(tp.thirdPartyMethod()),
+                        MethodExtractor.getFilteredMethodSignatureWithParams(tp.thirdPartyMethod()),
                         conditionCount);
+                // Use full signatures with parameters to properly distinguish overloaded methods
                 List<String> pathStrings = tp.path().stream()
-                        .map(MethodExtractor::getFilteredMethodSignature)
+                        .map(MethodExtractor::getFilteredMethodSignatureWithParams)
                         .collect(Collectors.toList());
                 // Direct caller is the second-to-last method in the path (before the third party method)
                 String directCaller = pathStrings.size() >= 2 ? 
                         pathStrings.get(pathStrings.size() - 2) : 
                         pathStrings.get(0);
                 FullMethodsPathData data = new FullMethodsPathData(
-                        MethodExtractor.getFilteredMethodSignature(tp.entryPoint()),
-                        MethodExtractor.getFilteredMethodSignature(tp.thirdPartyMethod()),
+                        MethodExtractor.getFilteredMethodSignatureWithParams(tp.entryPoint()),
+                        MethodExtractor.getFilteredMethodSignatureWithParams(tp.thirdPartyMethod()),
                         directCaller,
                         pathStrings,
                         fullMethods,
