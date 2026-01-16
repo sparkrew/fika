@@ -194,6 +194,10 @@ public class MethodExtractor {
                     if (CoverageFilter.isAlreadyCoveredByTests(method, target, jacocoHtmlDirs, enableAnalysisLogs)) {
                         continue;
                     }
+                    if (target.getName().equals("iterator")) {
+                        log.warn("Skipping iterator method {} in class {}", target, target.getDeclClassType().getFullyQualifiedName());
+                        continue;
+                    }
                     thirdPartyPairs.add(Map.entry(method, target));
                 }
             }
