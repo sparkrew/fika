@@ -312,4 +312,87 @@ class CoverageFilterTest {
         boolean result = CoverageFilter.isAlreadyCoveredByTests(testMethod, methodWithParams, jacocoHtmlDirs, false);
         assertTrue(result, "Should detect method call with parameters");
     }
+
+    @Test
+    void testIsAlreadyCoveredByTests_WithOverloadedMethods() throws IOException {
+        MethodSignature testMethodSig = mock(MethodSignature.class);
+        ClassType testClassType = mock(ClassType.class);
+        when(testMethodSig.getDeclClassType()).thenReturn(testClassType);
+        when(testClassType.getFullyQualifiedName()).thenReturn("com.example.TestClass");
+        when(testMethodSig.getName()).thenReturn("testMethod");
+        when(testMethodSig.getParameterTypes()).thenReturn(List.of());
+        sootup.core.types.Type voidType = mock(sootup.core.types.Type.class);
+        when(voidType.toString()).thenReturn("void");
+        when(testMethodSig.getType()).thenReturn(voidType);
+
+        MethodSignature anotherMethodSig = mock(MethodSignature.class);
+        ClassType anotherClassType = mock(ClassType.class);
+        when(anotherMethodSig.getDeclClassType()).thenReturn(anotherClassType);
+        when(anotherClassType.getFullyQualifiedName()).thenReturn("com.example.TestClass");
+        when(anotherMethodSig.getName()).thenReturn("anotherMethod");
+        when(anotherMethodSig.getParameterTypes()).thenReturn(List.of());
+        when(anotherMethodSig.getType()).thenReturn(voidType);
+
+        MethodSignature executeNoParams = mock(MethodSignature.class);
+        ClassType httpClientType1 = mock(ClassType.class);
+        when(executeNoParams.getDeclClassType()).thenReturn(httpClientType1);
+        when(httpClientType1.getFullyQualifiedName()).thenReturn("org.apache.http.HttpClient");
+        when(executeNoParams.getName()).thenReturn("execute");
+        when(executeNoParams.getParameterTypes()).thenReturn(List.of());
+
+        ClassType httpRequestType = mock(ClassType.class);
+        when(httpRequestType.toString()).thenReturn("org.apache.http.HttpRequest");
+
+        MethodSignature executeWithParam = mock(MethodSignature.class);
+        ClassType httpClientType2 = mock(ClassType.class);
+        when(executeWithParam.getDeclClassType()).thenReturn(httpClientType2);
+        when(httpClientType2.getFullyQualifiedName()).thenReturn("org.apache.http.HttpClient");
+        when(executeWithParam.getName()).thenReturn("execute");
+        when(executeWithParam.getParameterTypes()).thenReturn(List.of(httpRequestType));
+
+        CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute()");
+        CoverageFilter.registerTargetCall("com.example.TestClass", "org.apache.http.HttpClient.execute(org.apache.http.HttpRequest)");
+        Path packageDir = createPackageDirectory("com.example");
+        String htmlContent = """
+            <html>
+            <body>
+            <span id="L10" class="fc">public void testMethod() {</span>
+            <span id="L11" class="fc">    client.execute();</span>
+            <span id="L12" class="fc">}</span>
+            <span id="L13"></span>
+            <span id="L14" class="nc">public void anotherMethod() {</span>
+            <span id="L15" class="nc">    client.execute(request);</span>
+            <span id="L16" class="nc">}</span>
+            </body>
+            </html>
+            """;
+        writeHtmlFile(packageDir, "TestClass", htmlContent);
+        Path xmlFile = jacocoDir.resolve("jacoco.xml");
+        String xmlContent = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <report>
+                <package name="com/example">
+                    <class name="com/example/TestClass" sourcefilename="TestClass.java">
+                        <method name="testMethod" desc="()V" line="10"/>
+                        <method name="anotherMethod" desc="()V" line="14"/>
+                    </class>
+                    <sourcefile name="TestClass.java">
+                        <line nr="10" ci="1" mi="0"/>
+                        <line nr="11" ci="1" mi="0"/>
+                        <line nr="12" ci="1" mi="0"/>
+                        <line nr="14" ci="0" mi="1"/>
+                        <line nr="15" ci="0" mi="1"/>
+                        <line nr="16" ci="0" mi="1"/>
+                    </sourcefile>
+                </package>
+            </report>
+            """;
+        Files.writeString(xmlFile, xmlContent);
+        boolean resultNoParams = CoverageFilter.isAlreadyCoveredByTests(
+                testMethodSig, executeNoParams, jacocoHtmlDirs, false);
+        assertTrue(resultNoParams, "execute() without parameters should be covered");
+        boolean resultWithParam = CoverageFilter.isAlreadyCoveredByTests(
+                anotherMethodSig, executeWithParam, jacocoHtmlDirs, false);
+        assertFalse(resultWithParam, "execute(HttpRequest) with parameter should not be covered");
+    }
 }
