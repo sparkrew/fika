@@ -38,6 +38,8 @@ public class CoverageFilter {
     private static final Map<String, Map<String, Set<Integer>>> xmlCoverageCache = new ConcurrentHashMap<>();
     // Cache to track if a class has multiple calls to same target: Map<className, Map<targetMethod, count>>
     private static final Map<String, Map<String, Integer>> targetCallCountCache = new ConcurrentHashMap<>();
+    // Cache to track if we just checked a <clinit> in same class, so next target should use relaxed checking
+    private static final Map<String, Boolean> clinitSameClassCache = new ConcurrentHashMap<>();
 
     /**
      * Clears all caches.
@@ -47,6 +49,7 @@ public class CoverageFilter {
         htmlLineCache.clear();
         xmlCoverageCache.clear();
         targetCallCountCache.clear();
+        clinitSameClassCache.clear();
         log.debug("All coverage caches cleared");
     }
 
@@ -64,14 +67,20 @@ public class CoverageFilter {
                                                   List<File> jacocoHtmlDirs, boolean enableAnalysisLogs) {
         try {
             String fullClassName = method.getDeclClassType().getFullyQualifiedName();
+            String targetClassName = target.getDeclClassType().getFullyQualifiedName();
             String simpleClassName = fullClassName.substring(fullClassName.lastIndexOf('.') + 1);
             String packageName = extractPackageName(fullClassName);
             // Use full signature with parameters to handle method overloading
-            String thirdPartyMethod = target.getDeclClassType().getFullyQualifiedName() + "."
+            String thirdPartyMethod = targetClassName + "."
                     + target.getName()
                     + "(" + target.getParameterTypes().stream()
                     .map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
+            // Special case here. <clinit> where caller and target are in the same class
+            boolean isClinitSameClass = "<clinit>".equals(target.getName())
+                    && fullClassName.equals(targetClassName);
+            // Check if previous target was <clinit> in same class (we use simple checking for this target)
+            boolean useRelaxedChecking = clinitSameClassCache.getOrDefault(fullClassName, false);
             // Check if this class has multiple calls to the same target OR if the method has overloads
             // We need precise checking for overloads because HTML doesn't show parameter types
             boolean needsPreciseCheck = hasMultipleTargetCalls(fullClassName, thirdPartyMethod)
@@ -95,17 +104,40 @@ public class CoverageFilter {
                 Map<String, Boolean> fileCache = coverageCache.get(htmlFilePath);
                 if (fileCache != null && fileCache.containsKey(cacheKey)) {
                     log.debug("Cache hit for {} in method {}", thirdPartyMethod, method.getName());
-                    return fileCache.get(cacheKey);
+                    boolean cachedResult = fileCache.get(cacheKey);
+                    if (isClinitSameClass && cachedResult) {
+                        clinitSameClassCache.put(fullClassName, true);
+                    } else if (!isClinitSameClass && useRelaxedChecking) {
+                        clinitSameClassCache.put(fullClassName, false);
+                    }
+                    return cachedResult;
                 }
                 boolean isCovered;
-                // We use precise XML checking when:
-                // 1. There are multiple calls to the same method (with same signature) in one class
-                // 2. The method has overloads (different parameter types) - HTML can't distinguish them
-                if (needsPreciseCheck) {
-                    isCovered = isPreciseMethodCovered(htmlFile, dir, method, target, thirdPartyMethod);
-                } else {
-                    // Quick HTML check is sufficient (only one call in entire class)
+                // Special case for <clinit> in same class
+                if (isClinitSameClass) {
+                    isCovered = isAnyCoveredLineInClass(htmlFile);
+                    if (isCovered) {
+                        log.debug("<clinit> in same class - any covered line found, marking as covered");
+                        clinitSameClassCache.put(fullClassName, true);
+                    }
+                }
+                // Relaxed checking for target following a <clinit> same-class case
+                else if (useRelaxedChecking) {
                     isCovered = isMethodCoveredInClass(htmlFile, method, target, thirdPartyMethod);
+                    if (isCovered) {
+                        log.debug("Target {} covered anywhere in class after <clinit> same-class case", thirdPartyMethod);
+                    }
+                    clinitSameClassCache.put(fullClassName, false);
+                } else {
+                    // We use precise XML checking when:
+                    // 1. There are multiple calls to the same method (with same signature) in one class
+                    // 2. The method has overloads (different parameter types) - HTML can't distinguish them
+                    if (needsPreciseCheck) {
+                        isCovered = isPreciseMethodCovered(htmlFile, dir, method, target, thirdPartyMethod);
+                    } else {
+                        // Quick HTML check is sufficient (only one call in entire class)
+                        isCovered = isMethodCoveredInClass(htmlFile, method, target, thirdPartyMethod);
+                    }
                 }
                 coverageCache.computeIfAbsent(htmlFilePath, k -> new ConcurrentHashMap<>())
                         .put(cacheKey, isCovered);
@@ -206,7 +238,7 @@ public class CoverageFilter {
             log.warn("XML report not found in {}, cannot perform precise check", jacocoDir);
             return false;
         }
-        
+
         String methodName = method.getName();
         String methodDesc = buildMethodDescriptor(method);
         // Get covered lines for our specific method (from XML)
@@ -353,7 +385,7 @@ public class CoverageFilter {
      * Only checks the specified class, does not recurse into superclasses.
      */
     private static Set<Integer> getCoveredLinesForMethod(File xmlFile, String fullClassName,
-                                                                String methodName, String methodDesc) throws Exception {
+                                                         String methodName, String methodDesc) throws Exception {
         String cacheKey = xmlFile.getAbsolutePath();
         String methodKey = fullClassName + "." + methodName + methodDesc;
         Map<String, Set<Integer>> fileCache = xmlCoverageCache.get(cacheKey);
@@ -468,7 +500,7 @@ public class CoverageFilter {
         }
         xmlCoverageCache.computeIfAbsent(cacheKey, k -> new ConcurrentHashMap<>())
                 .put(methodKey, coveredLines);
-        
+
         log.debug("Found {} covered lines for method {} in class {}",
                 coveredLines.size(), methodName, fullClassName);
         return coveredLines;
@@ -578,6 +610,22 @@ public class CoverageFilter {
     }
 
     /**
+     * Checks if any line in the class is covered (for <clinit> same-class special case).
+     */
+    private static boolean isAnyCoveredLineInClass(File htmlFile) throws Exception {
+        Document doc = Jsoup.parse(htmlFile);
+        Elements spans = doc.select("span[id^=L]");
+        for (Element span : spans) {
+            String clazz = span.className();
+            // Check if this line is fully covered
+            if (clazz.contains("fc")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Quick check: is the target method covered anywhere in the class?
      * Used when there's only one call to the target in the entire class.
      * For constructors, if the caller extends the target, looks for super() calls OR implicit constructor calls.
@@ -591,7 +639,7 @@ public class CoverageFilter {
         String shortClassName = className.substring(className.lastIndexOf('.') + 1);
         String methodNameWithParams = thirdPartyMethod.substring(thirdPartyMethod.lastIndexOf('.') + 1);
         // Extract method name without parameters
-        String methodName = methodNameWithParams.contains("(") 
+        String methodName = methodNameWithParams.contains("(")
                 ? methodNameWithParams.substring(0, methodNameWithParams.indexOf('('))
                 : methodNameWithParams;
         // Check if this is a child-to-parent constructor call case
