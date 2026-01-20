@@ -1,5 +1,6 @@
 package io.github.sparkrew.fika.api_finder;
 
+import io.github.sparkrew.fika.api_finder.utils.NameFilter;
 import io.github.sparkrew.fika.api_finder.utils.SpoonMethodFinder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +38,7 @@ public class RecordCounter {
             int methodConditions = countConditionsInMethod(methodSig, sourceRootPath);
             totalConditions += methodConditions;
             log.trace("Method {} has {} conditions",
-                    MethodExtractor.getFilteredMethodSignatureWithParams(methodSig), methodConditions);
+                    NameFilter.getFilteredMethodSignatureWithParams(methodSig), methodConditions);
         }
         log.debug("Path has total {} conditions across {} methods", totalConditions, path.size() - 1);
         return totalConditions;
@@ -65,7 +66,7 @@ public class RecordCounter {
                 return 0;
             }
             CtModel spoonModel = SourceCodeExtractor.getModel(sourceRootPath);
-            String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
+            String className = NameFilter.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
             String methodName = methodSig.getName();
             // Find the type using shared helper
             CtType<?> ctType = SpoonMethodFinder.findTypeCached(spoonModel, className);

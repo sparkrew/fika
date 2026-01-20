@@ -162,16 +162,19 @@ public class MethodExtractor {
                 }
             }
         }
-        log.info("Total unique third-party method call pairs in the call graph: {}", allThirdPartyPairs.size());
+        log.info("Total unique third-party method call pairs in the call graph (public or non-public): {}",
+                allThirdPartyPairs.size());
         // If a class only has one unique call to a third party method, we get coverage in the simple way by only
         // analysing the html files. If it has multiple calls to the same third party method, we need to analyze the
         // xml files.
         Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs = new HashSet<>();
+        Set<Map.Entry<MethodSignature, MethodSignature>> skippedDueToCov = new HashSet<>();
         for (MethodSignature method : cg.getMethodSignatures()) {
             for (CallGraph.Call call : cg.callsFrom(method)) {
                 MethodSignature target = call.getTargetMethodSignature();
                 if (isThirdPartyMethod(target, packageMapPath)) {
                     if (CoverageFilter.isAlreadyCoveredByTests(method, target, jacocoHtmlDirs, enableAnalysisLogs)) {
+                        skippedDueToCov.add(Map.entry(method, target));
                         continue;
                     }
                     if (target.getName().equals("iterator")) {
@@ -182,6 +185,8 @@ public class MethodExtractor {
                 }
             }
         }
+        log.info("Unique third-party method call pairs after coverage filtering: {}", thirdPartyPairs.size());
+        log.info("Skipped {} third-party method call pairs due to coverage", skippedDueToCov.size());
         return thirdPartyPairs;
     }
 
@@ -245,33 +250,6 @@ public class MethodExtractor {
             }
         }
         return completePaths;
-    }
-
-    /**
-     * Get filtered method signature WITH parameter types to properly handle method overloading.
-     * This should be used when we need to uniquely identify methods that may be overloaded.
-     */
-    public static String getFilteredMethodSignatureWithParams(MethodSignature method) {
-        String className = filterName(method.getDeclClassType().getFullyQualifiedName());
-        String methodName = filterName(method.getName());
-        String params = method.getParameterTypes().stream()
-                .map(type -> filterName(type.toString()))
-                .collect(java.util.stream.Collectors.joining(", "));
-        return className + "." + methodName + "(" + params + ")";
-    }
-
-    private static String filterName(String name) {
-        // Replace $ followed by digit (e.g., $Array1234) with nothing
-        name = name.replaceAll("\\$\\d+", "");
-        // Replace $ followed by letter (e.g. Java.ArrayInitializer) with a dot
-        name = name.replaceAll("\\$(?=[A-Za-z])", ".");
-        return name;
-    }
-
-    public static String filterNameSimple(String name) {
-        // Replace $ followed by digit (e.g., $Array1234) with nothing
-        name = name.replaceAll("\\$\\d+", "");
-        return name;
     }
 
     // Detect entry points - all public methods

@@ -1,6 +1,7 @@
 package io.github.sparkrew.fika.api_finder;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.sparkrew.fika.api_finder.utils.NameFilter;
 import io.github.sparkrew.fika.api_finder.utils.PackageMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,14 +88,14 @@ public class AllMethodCallAnalyzer {
         log.info("Methods with third-party calls: {}", methodsWithThirdPartyCalls);
         log.info("Total unique third-party call pairs: {}", allCallPairs.size());
         log.info("Number of distinct third-party packages: {}", thirdPartyPackageCount.size());
-        if (!thirdPartyPackageCount.isEmpty()) {
-            log.info("Top third-party packages being called:");
-            thirdPartyPackageCount.entrySet().stream()
-                    .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                    .limit(10)
-                    .forEach(entry -> log.info("  {} - {} unique call pairs",
-                            entry.getKey(), entry.getValue()));
-        }
+//        if (!thirdPartyPackageCount.isEmpty()) {
+//            log.info("Top third-party packages being called:");
+//            thirdPartyPackageCount.entrySet().stream()
+//                    .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+//                    .limit(3)
+//                    .forEach(entry -> log.info("  {} - {} unique call pairs",
+//                            entry.getKey(), entry.getValue()));
+//        }
         // Write all call pairs to JSON file
         String reportPath = "all_third_party_call_pairs.json";
         writeCallPairsToJson(allCallPairs, reportPath);
@@ -136,8 +137,8 @@ public class AllMethodCallAnalyzer {
             List<Map<String, String>> formattedPairs = callPairs.stream()
                 .map(entry -> {
                     Map<String, String> pair = new HashMap<>();
-                    pair.put("caller", MethodExtractor.getFilteredMethodSignatureWithParams(entry.getKey()));
-                    pair.put("thirdPartyMethod", MethodExtractor.getFilteredMethodSignatureWithParams(entry.getValue()));
+                    pair.put("caller", NameFilter.getFilteredMethodSignatureWithParams(entry.getKey()));
+                    pair.put("thirdPartyMethod", NameFilter.getFilteredMethodSignatureWithParams(entry.getValue()));
                     return pair;
                 })
                 .sorted(Comparator.comparing(p -> p.get("caller")))

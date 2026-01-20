@@ -18,6 +18,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import static io.github.sparkrew.fika.api_finder.utils.NameFilter.filterName;
+
 /**
  * CoverageFilter checks if methods are already covered by tests using JaCoCo reports.
  * It uses both HTML and XML reports to determine coverage status.
@@ -38,8 +40,6 @@ public class CoverageFilter {
     private static final Map<String, Map<String, Set<Integer>>> xmlCoverageCache = new ConcurrentHashMap<>();
     // Cache to track if a class has multiple calls to same target: Map<className, Map<targetMethod, count>>
     private static final Map<String, Map<String, Integer>> targetCallCountCache = new ConcurrentHashMap<>();
-    // Cache to track if we just checked a <clinit> in same class, so next target should use relaxed checking
-    private static final Map<String, Boolean> clinitSameClassCache = new ConcurrentHashMap<>();
 
     /**
      * Clears all caches.
@@ -49,7 +49,6 @@ public class CoverageFilter {
         htmlLineCache.clear();
         xmlCoverageCache.clear();
         targetCallCountCache.clear();
-        clinitSameClassCache.clear();
         log.debug("All coverage caches cleared");
     }
 
@@ -66,21 +65,17 @@ public class CoverageFilter {
     public static boolean isAlreadyCoveredByTests(MethodSignature method, MethodSignature target,
                                                   List<File> jacocoHtmlDirs, boolean enableAnalysisLogs) {
         try {
-            String fullClassName = method.getDeclClassType().getFullyQualifiedName();
-            String targetClassName = target.getDeclClassType().getFullyQualifiedName();
-            String simpleClassName = fullClassName.substring(fullClassName.lastIndexOf('.') + 1);
-            String packageName = extractPackageName(fullClassName);
-            // Use full signature with parameters to handle method overloading
+            String fullClassName = filterName(method.getDeclClassType().getFullyQualifiedName());
+            String targetClassName = filterName(target.getDeclClassType().getFullyQualifiedName());
+            String[] packageAndClass = extractPackageAndClass(fullClassName);
+            String packageName = packageAndClass[0];
+            String outerMostClassName = packageAndClass[1];
+            // Use the full signature with parameters to handle method overloading
             String thirdPartyMethod = targetClassName + "."
                     + target.getName()
                     + "(" + target.getParameterTypes().stream()
                     .map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
-            // Special case here. <clinit> where caller and target are in the same class
-            boolean isClinitSameClass = "<clinit>".equals(target.getName())
-                    && fullClassName.equals(targetClassName);
-            // Check if previous target was <clinit> in same class (we use simple checking for this target)
-            boolean useRelaxedChecking = clinitSameClassCache.getOrDefault(fullClassName, false);
             // Check if this class has multiple calls to the same target OR if the method has overloads
             // We need precise checking for overloads because HTML doesn't show parameter types
             boolean needsPreciseCheck = hasMultipleTargetCalls(fullClassName, thirdPartyMethod)
@@ -88,10 +83,11 @@ public class CoverageFilter {
             for (File dir : jacocoHtmlDirs) {
                 File htmlFile = dir.toPath()
                         .resolve(packageName)
-                        .resolve(simpleClassName + ".java.html")
+                        .resolve(outerMostClassName + ".java.html")
                         .toFile();
 
                 if (!htmlFile.exists()) {
+                    log.warn("JaCoCo HTML report file not found: {}", htmlFile.getAbsolutePath());
                     continue;
                 }
                 String htmlFilePath = htmlFile.getAbsolutePath();
@@ -104,30 +100,16 @@ public class CoverageFilter {
                 Map<String, Boolean> fileCache = coverageCache.get(htmlFilePath);
                 if (fileCache != null && fileCache.containsKey(cacheKey)) {
                     log.debug("Cache hit for {} in method {}", thirdPartyMethod, method.getName());
-                    boolean cachedResult = fileCache.get(cacheKey);
-                    if (isClinitSameClass && cachedResult) {
-                        clinitSameClassCache.put(fullClassName, true);
-                    } else if (!isClinitSameClass && useRelaxedChecking) {
-                        clinitSameClassCache.put(fullClassName, false);
-                    }
-                    return cachedResult;
+                    return fileCache.get(cacheKey);
                 }
                 boolean isCovered;
-                // Special case for <clinit> in same class
-                if (isClinitSameClass) {
-                    isCovered = isAnyCoveredLineInClass(htmlFile);
+                // Special case for <clinit>. Why? Refer to the case in mybatis log4j (search <clinit> inside
+                // mybatis report)
+                if ("<clinit>".equals(method.getName())) {
+                    isCovered = isMethodCoveredInClass(htmlFile, method, targetClassName, thirdPartyMethod);
                     if (isCovered) {
-                        log.debug("<clinit> in same class - any covered line found, marking as covered");
-                        clinitSameClassCache.put(fullClassName, true);
+                        log.debug("Target {} covered anywhere in class after <clinit>", thirdPartyMethod);
                     }
-                }
-                // Relaxed checking for target following a <clinit> same-class case
-                else if (useRelaxedChecking) {
-                    isCovered = isMethodCoveredInClass(htmlFile, method, target, thirdPartyMethod);
-                    if (isCovered) {
-                        log.debug("Target {} covered anywhere in class after <clinit> same-class case", thirdPartyMethod);
-                    }
-                    clinitSameClassCache.put(fullClassName, false);
                 } else {
                     // We use precise XML checking when:
                     // 1. There are multiple calls to the same method (with same signature) in one class
@@ -135,14 +117,15 @@ public class CoverageFilter {
                     if (needsPreciseCheck) {
                         isCovered = isPreciseMethodCovered(htmlFile, dir, method, target, thirdPartyMethod);
                     } else {
-                        // Quick HTML check is sufficient (only one call in entire class)
-                        isCovered = isMethodCoveredInClass(htmlFile, method, target, thirdPartyMethod);
+                        // Quick HTML check is enough (only one call and no overloads)
+                        isCovered = isMethodCoveredInClass(htmlFile, method, targetClassName, thirdPartyMethod);
                     }
                 }
                 coverageCache.computeIfAbsent(htmlFilePath, k -> new ConcurrentHashMap<>())
                         .put(cacheKey, isCovered);
                 if (isCovered) {
-                    String callerSignature = method.getDeclClassType().getFullyQualifiedName() + "." + method.getName() +
+                    String callerSignature = filterName(method.getDeclClassType().getFullyQualifiedName())
+                            + "." + method.getName() +
                             "(" + method.getParameterTypes().stream().map(Type::toString)
                             .collect(Collectors.joining(", ")) + ")";
                     if (enableAnalysisLogs) {
@@ -151,7 +134,8 @@ public class CoverageFilter {
                     return true;
                 }
             }
-            String callerSignature = method.getDeclClassType().getFullyQualifiedName() + "." + method.getName() +
+            String callerSignature = filterName(method.getDeclClassType().getFullyQualifiedName()) +
+                    "." + method.getName() +
                     "(" + method.getParameterTypes().stream().map(Type::toString)
                     .collect(Collectors.joining(", ")) + ")";
             if (enableAnalysisLogs) {
@@ -185,7 +169,7 @@ public class CoverageFilter {
      * NOTE: thirdPartyMethod should include parameters to properly handle method overloading.
      */
     public static void registerTargetCall(String fullClassName, String thirdPartyMethod) {
-        targetCallCountCache.computeIfAbsent(fullClassName, k -> new ConcurrentHashMap<>())
+        targetCallCountCache.computeIfAbsent(filterName(fullClassName), k -> new ConcurrentHashMap<>())
                 .merge(thirdPartyMethod, 1, Integer::sum);
     }
 
@@ -205,7 +189,7 @@ public class CoverageFilter {
                 .filter(key -> key.startsWith(baseSignature + "("))
                 .count();
         if (overloadCount > 1) {
-            log.info("Method {} has {} overloads", baseSignature, overloadCount);
+            log.debug("Method {} has {} overloads", baseSignature, overloadCount);
         }
         return overloadCount > 1;
     }
@@ -219,10 +203,9 @@ public class CoverageFilter {
     private static boolean isPreciseMethodCovered(File htmlFile, File jacocoDir,
                                                   MethodSignature method, MethodSignature target,
                                                   String thirdPartyMethod) throws Exception {
-        String fullClassName = method.getDeclClassType().getFullyQualifiedName();
-
+        String fullClassName = filterName(method.getDeclClassType().getFullyQualifiedName());
         // Get line numbers where target is called (from HTML)
-        // Note: For overloaded methods, this may return lines for ALL overloads since HTML doesn't distinguish
+        // Note: For overloaded methods, this may return lines for all overloads since HTML doesn't distinguish
         Set<Integer> targetCallLines = getTargetCallLines(htmlFile, method, target);
         if (targetCallLines.isEmpty()) {
             log.warn("No lines found calling target {} in class {}", thirdPartyMethod, fullClassName);
@@ -238,7 +221,6 @@ public class CoverageFilter {
             log.warn("XML report not found in {}, cannot perform precise check", jacocoDir);
             return false;
         }
-
         String methodName = method.getName();
         String methodDesc = buildMethodDescriptor(method);
         // Get covered lines for our specific method (from XML)
@@ -263,9 +245,15 @@ public class CoverageFilter {
     /**
      * Checks if a code line represents a constructor declaration.
      * Constructor declarations look like: "public ClassName(" or "ClassName(" etc.
+     * Static class declarations look like: "public static class ChildClass extends ParentClass"
      * This is used to detect implicit super() calls in child class constructors.
      */
     private static boolean isConstructorDeclaration(String codeLine, String className) {
+        // Check for static class declaration with extends first
+        // Pattern: public static class ClassName extends ...
+        if (codeLine.contains("class ") && codeLine.contains("extends ") && codeLine.contains(className)) {
+            return true;
+        }
         // Constructor patterns:
         // - public ClassName(
         // - protected ClassName(
@@ -274,12 +262,9 @@ public class CoverageFilter {
         // Match word boundary before className to avoid partial matches
         String[] modifiers = {"public ", "protected ", "private ", ""};
         for (String modifier : modifiers) {
-            String pattern = modifier + className + "(";
+            String pattern = modifier + className;
             if (codeLine.contains(pattern)) {
-                // Make sure it's not a "new ClassName(" call
-                if (!codeLine.contains("new " + className + "(")) {
-                    return true;
-                }
+                return true;
             }
         }
         return false;
@@ -289,16 +274,15 @@ public class CoverageFilter {
      * Checks if the caller class extends the target class by checking the HTML source.
      * Used to determine if we should look for super() calls instead of new ClassName() calls.
      */
-    private static boolean callerExtendsTarget(File htmlFile, MethodSignature target) {
+    private static boolean callerExtendsTarget(File htmlFile, String shortCallerClassName, String shortTargetClassName) {
         try {
             Document doc = Jsoup.parse(htmlFile);
-            String targetClassName = target.getDeclClassType().getFullyQualifiedName();
-            String shortTargetClassName = targetClassName.substring(targetClassName.lastIndexOf('.') + 1);
             // Look for class declaration with extends keyword
             Element pre = doc.selectFirst("pre");
             if (pre != null) {
                 String source = pre.wholeText();
-                if (source.contains("class ") && source.contains("extends " + shortTargetClassName)) {
+                if (source.contains("class ") && source.contains("extends ") && source.contains(shortTargetClassName)
+                && source.contains(shortCallerClassName)) {
                     return true;
                 }
             }
@@ -317,7 +301,7 @@ public class CoverageFilter {
     private static Set<Integer> getTargetCallLines(File htmlFile, MethodSignature caller, MethodSignature target) throws Exception {
         String htmlFilePath = htmlFile.getAbsolutePath();
         // Use full signature with params to handle method overloading
-        String targetKey = target.getDeclClassType().getFullyQualifiedName() + "." + target.getName()
+        String targetKey = filterName(target.getDeclClassType().getFullyQualifiedName()) + "." + target.getName()
                 + "(" + target.getParameterTypes().stream()
                 .map(sootup.core.types.Type::toString)
                 .collect(java.util.stream.Collectors.joining(", ")) + ")";
@@ -327,14 +311,14 @@ public class CoverageFilter {
         }
         Set<Integer> lineNumbers = new HashSet<>();
         Document doc = Jsoup.parse(htmlFile);
-        String targetClassName = target.getDeclClassType().getFullyQualifiedName();
+        String targetClassName = filterName(target.getDeclClassType().getFullyQualifiedName());
         String shortClassName = targetClassName.substring(targetClassName.lastIndexOf('.') + 1);
         String methodName = target.getName();
-        // Check if this is a child-to-parent constructor call case
-        boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, target);
-        // Get the caller's simple class name for implicit constructor detection
-        String callerClassName = caller.getDeclClassType().getFullyQualifiedName();
+        String callerClassName = filterName(caller.getDeclClassType().getFullyQualifiedName());
         String callerSimpleClassName = callerClassName.substring(callerClassName.lastIndexOf('.') + 1);
+        // Check if this is a child-to-parent constructor call case
+        boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, callerSimpleClassName,
+                shortClassName);
         Elements spans = doc.select("span[id^=L]");
         for (Element span : spans) {
             String lineId = span.attr("id");
@@ -344,24 +328,23 @@ public class CoverageFilter {
                 if (isChildConstructor) {
                     // Child class calling parent constructor - look for:
                     // 1. Explicit super() call
-                    // 2. Implicit call via child constructor (e.g., "public ChildClass() {")
+                    // 2. Implicit super() via constructor declaration OR class declaration with extends
                     if (codeLine.contains("super(")) {
                         containsTarget = true;
                         log.debug("Found explicit super() call in line: {}", codeLine);
                     } else if (isConstructorDeclaration(codeLine, callerSimpleClassName)) {
-                        // This is the child constructor declaration - implicit super() call
                         containsTarget = true;
-                        log.debug("Found implicit constructor call (child constructor declaration) in line: {}", codeLine);
+                        log.debug("Found implicit super() call (constructor/class declaration) in line: {}", codeLine);
                     }
                 } else {
                     // Regular constructor call
-                    containsTarget = codeLine.contains("new " + shortClassName + "(");
+                    containsTarget = codeLine.contains("new ") && codeLine.contains(shortClassName) && codeLine.contains("(");
                 }
             } else if ("<clinit>".equals(methodName)) {
                 containsTarget = codeLine.contains(shortClassName);
             } else {
                 // Regular method - check for direct call or super.methodName() call
-                if (codeLine.contains(methodName + "(")) {
+                if (codeLine.contains(methodName)) {
                     containsTarget = true;
                 }
             }
@@ -402,6 +385,7 @@ public class CoverageFilter {
         DocumentBuilder builder = factory.newDocumentBuilder();
         org.w3c.dom.Document doc = builder.parse(xmlFile);
         // Find the package that contains our class
+        // This is most definitely bad code. If possible we should refactor it later.
         String xmlClassName = fullClassName.replace('.', '/');
         NodeList packages = doc.getElementsByTagName("package");
         for (int i = 0; i < packages.getLength(); i++) {
@@ -589,7 +573,14 @@ public class CoverageFilter {
         return null;
     }
 
-    private static String extractPackageName(String fullClassName) {
+    /**
+     * Extract package name and outermost class name from a fully qualified class name.
+     * Handles nested/inner classes by finding the first capital letter.
+     *
+     * @param fullClassName Fully qualified class name (e.g., "com.example.MyClass" or "com.example.Outer.Inner")
+     * @return String array where [0] = package name, [1] = outermost class name
+     */
+    private static String[] extractPackageAndClass(String fullClassName) {
         String[] parts = fullClassName.split("\\.");
         // Find the first part that starts with a capital letter (the outermost class)
         int outermostClassIdx = -1;
@@ -601,28 +592,14 @@ public class CoverageFilter {
         }
         if (outermostClassIdx == -1) {
             log.warn("Could not find class name in: {}", fullClassName);
-            return "";
+            return new String[]{"", fullClassName};
         }
         // Everything before the outermost class is the package
-        return outermostClassIdx > 0
+        String packageName = outermostClassIdx > 0
                 ? String.join(".", Arrays.copyOfRange(parts, 0, outermostClassIdx))
                 : "";
-    }
-
-    /**
-     * Checks if any line in the class is covered (for <clinit> same-class special case).
-     */
-    private static boolean isAnyCoveredLineInClass(File htmlFile) throws Exception {
-        Document doc = Jsoup.parse(htmlFile);
-        Elements spans = doc.select("span[id^=L]");
-        for (Element span : spans) {
-            String clazz = span.className();
-            // Check if this line is fully covered
-            if (clazz.contains("fc")) {
-                return true;
-            }
-        }
-        return false;
+        String outermostClassName = parts[outermostClassIdx];
+        return new String[]{packageName, outermostClassName};
     }
 
     /**
@@ -632,21 +609,23 @@ public class CoverageFilter {
      * For regular methods, also checks for super.methodName() calls.
      * If not found in current class, checks superclass.
      */
-    private static boolean isMethodCoveredInClass(File htmlFile, MethodSignature caller,
-                                                  MethodSignature target, String thirdPartyMethod) throws Exception {
+    // ToDo: There is much repetition between this method and getTargetCallLines. We should refactor it later.
+    private static boolean isMethodCoveredInClass(File htmlFile, MethodSignature caller, String className,
+                                                  String thirdPartyMethod)
+            throws Exception {
         // thirdPartyMethod now includes parameters, so we need to extract just the method name
-        String className = thirdPartyMethod.substring(0, thirdPartyMethod.lastIndexOf('.'));
+        String filteredThirdPartyMethod = filterName(thirdPartyMethod);
         String shortClassName = className.substring(className.lastIndexOf('.') + 1);
-        String methodNameWithParams = thirdPartyMethod.substring(thirdPartyMethod.lastIndexOf('.') + 1);
+        String methodNameWithParams = filteredThirdPartyMethod.substring(filteredThirdPartyMethod.lastIndexOf('.') + 1);
         // Extract method name without parameters
         String methodName = methodNameWithParams.contains("(")
                 ? methodNameWithParams.substring(0, methodNameWithParams.indexOf('('))
                 : methodNameWithParams;
-        // Check if this is a child-to-parent constructor call case
-        boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, target);
-        // Get the caller's simple class name for implicit constructor detection
-        String callerClassName = caller.getDeclClassType().getFullyQualifiedName();
+        String callerClassName = filterName(caller.getDeclClassType().getFullyQualifiedName());
         String callerSimpleClassName = callerClassName.substring(callerClassName.lastIndexOf('.') + 1);
+        // Check if this is a child-to-parent constructor call case
+        boolean isChildConstructor = "<init>".equals(methodName) && callerExtendsTarget(htmlFile, callerSimpleClassName,
+                shortClassName);
         Document doc = Jsoup.parse(htmlFile);
         Elements spans = doc.select("span[id^=L]");
         for (Element span : spans) {
@@ -656,19 +635,25 @@ public class CoverageFilter {
             if (clazz.contains("fc")) {
                 if ("<init>".equals(methodName)) {
                     if (isChildConstructor) {
+                        // Here, our goal is to check if the caller constructor is covered. If it is covered, the target
+                        // third party constructor is covered.
                         // Child class calling parent constructor - look for:
                         // 1. Explicit super() call
-                        // 2. Implicit call via child constructor declaration
+                        // 2. Implicit super() via constructor declaration or class declaration with extends
                         if (codeLine.contains("super(")) {
                             log.debug("Found covered super() call in quick check");
                             return true;
                         }
                         if (isConstructorDeclaration(codeLine, callerSimpleClassName)) {
-                            log.debug("Found covered implicit constructor call (child constructor) in quick check");
+                            if (callerClassName.contains("DummyAvroKryo")) {
+                                System.out.println("-----Found constructor declaration line");
+                            }
+                            log.debug("Found covered implicit super() call (constructor/class declaration) in " +
+                                    "quick check");
                             return true;
                         }
                     } else {
-                        if (codeLine.contains("new " + shortClassName + "(")) {
+                        if (codeLine.contains("new ") && codeLine.contains(shortClassName) && codeLine.contains("(")) {
                             return true;
                         }
                     }
@@ -678,7 +663,7 @@ public class CoverageFilter {
                     }
                 } else {
                     // Regular method - check for direct call or super.methodName() call
-                    if (codeLine.contains(methodName + "(")) {
+                    if (codeLine.contains(methodName)) {
                         return true;
                     }
                 }

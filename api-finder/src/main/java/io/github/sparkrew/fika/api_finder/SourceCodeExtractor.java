@@ -15,6 +15,8 @@ import spoon.reflect.visitor.CtScanner;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static io.github.sparkrew.fika.api_finder.utils.NameFilter.filterNameSimple;
+
 /**
  * Extracts actual source code from Java files using Spoon.
  * Enhanced to add tracking comments for method calls along paths.
@@ -74,7 +76,7 @@ public class SourceCodeExtractor {
         }
         try {
             CtModel spoonModel = getOrCreateModel(sourceRootPath);
-            String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
+            String className = filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
             String methodName = methodSig.getName();
             // Handle inner classes - Spoon uses $ for inner classes
             CtType<?> ctType = findTypeCached(spoonModel, className);
@@ -151,7 +153,7 @@ public class SourceCodeExtractor {
             return executable.prettyprint();
         }
         String nextMethodName = nextMethodSig.getName();
-        String nextClassName = MethodExtractor.filterNameSimple(nextMethodSig.getDeclClassType().getFullyQualifiedName());
+        String nextClassName = filterNameSimple(nextMethodSig.getDeclClassType().getFullyQualifiedName());
         String simpleClassName = nextClassName.substring(nextClassName.lastIndexOf('.') + 1);
         PathCallFinder finder = new PathCallFinder(nextMethodName, nextClassName);
         executable.getBody().accept(finder);
@@ -371,7 +373,7 @@ public class SourceCodeExtractor {
     public static ClassMemberData extractClassMembers(MethodSignature methodSig, String sourceRootPath) {
         try {
             CtModel spoonModel = getOrCreateModel(sourceRootPath);
-            String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
+            String className = filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
@@ -537,7 +539,7 @@ public class SourceCodeExtractor {
         Set<String> imports = new HashSet<>();
         try {
             CtModel spoonModel = getOrCreateModel(sourceRootPath);
-            String className = MethodExtractor.filterNameSimple(entryPointSig.getDeclClassType().getFullyQualifiedName());
+            String className = filterNameSimple(entryPointSig.getDeclClassType().getFullyQualifiedName());
             CtType<?> ctType = findTypeCached(spoonModel, className);
             if (ctType == null) {
                 log.debug("Type not found in Spoon model: {}", className);
@@ -567,7 +569,7 @@ public class SourceCodeExtractor {
     private static void extractImportsFromMethodSignature(CtModel spoonModel,
                                                           MethodSignature methodSig,
                                                           Set<String> imports) {
-        String className = MethodExtractor.filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
+        String className = filterNameSimple(methodSig.getDeclClassType().getFullyQualifiedName());
         CtType<?> ctType = findTypeCached(spoonModel, className);
         if (ctType == null) {
             return;

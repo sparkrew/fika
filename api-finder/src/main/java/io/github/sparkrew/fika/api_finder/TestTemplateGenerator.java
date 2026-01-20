@@ -83,14 +83,14 @@ public class TestTemplateGenerator {
      * Extract the simple class name from a fully qualified name.
      */
     private static String extractSimpleClassName(String fullyQualifiedName) {
-        if (fullyQualifiedName == null || !fullyQualifiedName.contains(".")) {
-            return fullyQualifiedName;
+        if (fullyQualifiedName == null) {
+            return null;
         }
         // Handle inner classes - take the part after the last $ or .
         String name = fullyQualifiedName;
         if (name.contains("$")) {
             name = name.substring(name.lastIndexOf("$") + 1);
-        } else {
+        } else if (name.contains(".")) {
             name = name.substring(name.lastIndexOf(".") + 1);
         }
         return name;

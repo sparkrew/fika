@@ -2,16 +2,13 @@ package io.github.sparkrew.fika.api_finder;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import io.github.sparkrew.fika.api_finder.model.*;
+import io.github.sparkrew.fika.api_finder.utils.NameFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sootup.core.signatures.MethodSignature;
 
 import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -55,19 +52,19 @@ public class PathWriter {
                 String testTemplate = TestTemplateGenerator.generateTestTemplate(tp);
                 int conditionCount = RecordCounter.countConditionsInPath(tp.path(), sourceRootPath);
                 log.debug("Path to {} has {} conditions",
-                        MethodExtractor.getFilteredMethodSignatureWithParams(tp.thirdPartyMethod()),
+                        NameFilter.getFilteredMethodSignatureWithParams(tp.thirdPartyMethod()),
                         conditionCount);
                 // Use full signatures with parameters to properly distinguish overloaded methods
                 List<String> pathStrings = tp.path().stream()
-                        .map(MethodExtractor::getFilteredMethodSignatureWithParams)
+                        .map(NameFilter::getFilteredMethodSignatureWithParams)
                         .collect(Collectors.toList());
                 // Direct caller is the second-to-last method in the path (before the third party method)
                 String directCaller = pathStrings.size() >= 2 ? 
                         pathStrings.get(pathStrings.size() - 2) : 
                         pathStrings.get(0);
                 FullMethodsPathData data = new FullMethodsPathData(
-                        MethodExtractor.getFilteredMethodSignatureWithParams(tp.entryPoint()),
-                        MethodExtractor.getFilteredMethodSignatureWithParams(tp.thirdPartyMethod()),
+                        NameFilter.getFilteredMethodSignatureWithParams(tp.entryPoint()),
+                        NameFilter.getFilteredMethodSignatureWithParams(tp.thirdPartyMethod()),
                         directCaller,
                         pathStrings,
                         fullMethods,

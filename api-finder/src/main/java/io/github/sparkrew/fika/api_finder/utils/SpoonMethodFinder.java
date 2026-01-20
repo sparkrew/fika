@@ -12,6 +12,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.github.sparkrew.fika.api_finder.utils.NameFilter.filterName;
+
 /**
  * Shared utility for finding types and methods in the Spoon model.
  * Eliminates code duplication between SourceCodeExtractor and ConditionCounter.
@@ -50,8 +52,7 @@ public class SpoonMethodFinder {
         if (type != null) {
             return type;
         }
-        // Handle inner classes - replace $ with .  for Spoon's format
-        String spoonName = fullyQualifiedName. replace('$', '.');
+        String spoonName = filterName(fullyQualifiedName);
         type = spoonModel.getAllTypes().stream()
                 .filter(t -> t.getQualifiedName().equals(spoonName))
                 .findFirst()
@@ -59,7 +60,7 @@ public class SpoonMethodFinder {
         if (type != null) {
             return type;
         }
-        // Try looking for the outer class and then finding the inner class, yeah, never gonna give you up.
+        // Try looking for the outer class and then finding the inner class.
         if (fullyQualifiedName.contains("$")) {
             String outerClassName = fullyQualifiedName.substring(0, fullyQualifiedName.indexOf("$"));
             CtType<?> outerType = findTypeCached(spoonModel, outerClassName);
@@ -109,7 +110,7 @@ public class SpoonMethodFinder {
             return countMatch.get();
         }
         // We are really unlucky!  After all this effort, we just have to return the first method.
-        log.debug("Multiple overloaded methods found for {}, returning first one", methodName);
+        log.warn("Multiple overloaded methods found for {}, returning first one", methodName);
         return candidateMethods.get(0);
     }
 
@@ -142,7 +143,7 @@ public class SpoonMethodFinder {
             return matchingConstructor. get();
         }
         // Screw it, we give up, fall back to first constructor
-        log.debug("Multiple constructors found, returning first one for {}", ctType.getQualifiedName());
+        log.warn("Multiple constructors found, returning first one for {}", ctType.getQualifiedName());
         return (CtConstructor<?>) constructors.get(0);
     }
 
