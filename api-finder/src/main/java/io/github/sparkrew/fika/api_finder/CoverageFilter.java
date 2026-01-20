@@ -645,9 +645,6 @@ public class CoverageFilter {
                             return true;
                         }
                         if (isConstructorDeclaration(codeLine, callerSimpleClassName)) {
-                            if (callerClassName.contains("DummyAvroKryo")) {
-                                System.out.println("-----Found constructor declaration line");
-                            }
                             log.debug("Found covered implicit super() call (constructor/class declaration) in " +
                                     "quick check");
                             return true;
