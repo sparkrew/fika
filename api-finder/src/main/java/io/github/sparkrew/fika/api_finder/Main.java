@@ -89,7 +89,7 @@ public class Main {
         @Override
         public void run() {
             MethodExtractor.process(jarPath, reportFile, packageName, packageMapPath, sourceCodePath,
-                        jacocoFiles.stream().map(Path::toFile).toList(), enableAnalysisLogs);
+                    jacocoFiles.stream().map(Path::toFile).toList(), enableAnalysisLogs);
         }
     }
 }

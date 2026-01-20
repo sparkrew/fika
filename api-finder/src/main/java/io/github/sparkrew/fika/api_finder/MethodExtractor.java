@@ -86,9 +86,9 @@ public class MethodExtractor {
                 if (sourceRootPath != null) {
                     try {
                         callCount = SourceCodeExtractor.countMethodInvocations(
-                            directCaller, thirdPartyMethod, sourceRootPath);
+                                directCaller, thirdPartyMethod, sourceRootPath);
                     } catch (Exception e) {
-                        log.debug("Could not count invocations for path to {}, using default count of 1", 
+                        log.debug("Could not count invocations for path to {}, using default count of 1",
                                 thirdPartyMethod);
                     }
                 }

@@ -4,12 +4,14 @@ import io.github.sparkrew.fika.api_finder.utils.NameFilter;
 import io.github.sparkrew.fika.api_finder.utils.SpoonMethodFinder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sootup.core.signatures.MethodSignature;
+import spoon.reflect.CtModel;
 import spoon.reflect.code.*;
 import spoon.reflect.declaration.CtType;
-import spoon.reflect.CtModel;
-import sootup.core.signatures.MethodSignature;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Counts control flow conditions (if, for, while, switch, do-while) in methods.
@@ -24,7 +26,7 @@ public class RecordCounter {
     /**
      * Count total conditions across all methods in a path.
      *
-     * @param path List of method signatures in the path
+     * @param path           List of method signatures in the path
      * @param sourceRootPath Root directory of source code
      * @return Total count of control flow conditions
      */
@@ -48,7 +50,7 @@ public class RecordCounter {
      * Count conditions in a single method.
      * Uses caching to avoid re-parsing the same method multiple times.
      *
-     * @param methodSig Method signature
+     * @param methodSig      Method signature
      * @param sourceRootPath Root directory of source code
      * @return Count of control flow conditions in the method
      */
@@ -105,7 +107,7 @@ public class RecordCounter {
         var staticBlocks = ctType.getElements(
                 element -> element instanceof spoon.reflect.code.CtBlock &&
                         element.getParent() instanceof CtType &&
-                        ! element.isImplicit()
+                        !element.isImplicit()
         );
         if (staticBlocks.isEmpty()) {
             // No explicit static initializer found
@@ -149,7 +151,7 @@ public class RecordCounter {
         count += whileLoops.size();
         // Count do-while loops
         List<CtDo> doWhileLoops = block.getElements(element -> element instanceof CtDo);
-        count += doWhileLoops. size();
+        count += doWhileLoops.size();
         // Count switch statements
         List<CtSwitch<?>> switchStatements = block.getElements(element -> element instanceof CtSwitch);
         count += switchStatements.size();

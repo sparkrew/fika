@@ -275,7 +275,7 @@ public class SourceCodeExtractor {
                 .filter(field -> field.getDefaultExpression() != null)
                 .toList();
         if (staticBlocks.isEmpty() && staticFields.isEmpty()) {
-            log.warn("No static initializer or static field initializations found for {}", 
+            log.warn("No static initializer or static field initializations found for {}",
                     ctType.getQualifiedName());
             return null;
         }
@@ -335,7 +335,7 @@ public class SourceCodeExtractor {
             }
             if (executable == null || executable.getBody() == null) {
                 log.warn("Method or body not found for {}", callerSig);
-                return 1; 
+                return 1;
             }
             String targetMethodName = targetSig.getName();
             String targetClassName = targetSig.getDeclClassType().getFullyQualifiedName();
@@ -347,7 +347,7 @@ public class SourceCodeExtractor {
             invocationCountCache.put(cacheKey, result);
             return result;
         } catch (Exception e) {
-            log.warn("Error counting invocations for {} -> {}: {}", 
+            log.warn("Error counting invocations for {} -> {}: {}",
                     callerSig, targetSig, e.getMessage());
             int defaultCount = 1;
             invocationCountCache.put(cacheKey, defaultCount);
@@ -417,7 +417,7 @@ public class SourceCodeExtractor {
         log.debug("Extracted {} constructors from {}", constructors.size(), ctType.getQualifiedName());
         return constructors;
     }
-    
+
     /**
      * Extract public static methods that return an instance of the class (factory methods).
      * These methods typically serve as alternatives to constructors when constructors are private.
@@ -492,7 +492,7 @@ public class SourceCodeExtractor {
     /**
      * Extract imports from all constructors, fields, and field-modifying methods in a type.
      */
-    private static void extractImportsFromClassMembers(CtType<?> ctType, Set<String> imports, 
+    private static void extractImportsFromClassMembers(CtType<?> ctType, Set<String> imports,
                                                        String className, Set<String> fieldNames) {
         var constructorElements = ctType.getElements(
                 element -> element instanceof spoon.reflect.declaration.CtConstructor
@@ -881,9 +881,11 @@ public class SourceCodeExtractor {
     private static class FieldModificationChecker extends CtScanner {
         private final Set<String> fieldNames;
         private boolean modifies = false;
+
         FieldModificationChecker(Set<String> fieldNames) {
             this.fieldNames = fieldNames;
         }
+
         @Override
         public <T, A extends T> void visitCtAssignment(spoon.reflect.code.CtAssignment<T, A> assignment) {
             if (modifies) return;

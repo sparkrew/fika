@@ -17,9 +17,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * Analyzes all third-party method calls in the project bytecode,
@@ -120,36 +117,36 @@ public class AllMethodCallAnalyzer {
         }
         return PackageMatcher.containsPackage(packageName, packageMapPath);
     }
-    
+
     /**
      * Writes all unique third-party method call pairs to a JSON file.
-     * 
+     *
      * @param callPairs  Set of unique (caller, third-party method) pairs
      * @param reportPath Path prefix for the output file
      */
-    private static void writeCallPairsToJson(Set<Map.Entry<MethodSignature, MethodSignature>> callPairs, 
-                                            String reportPath) {
+    private static void writeCallPairsToJson(Set<Map.Entry<MethodSignature, MethodSignature>> callPairs,
+                                             String reportPath) {
         try {
             ObjectMapper mapper = new ObjectMapper();
-            
+
             // Convert call pairs to a more readable format
             // Use full signatures with parameters to properly distinguish overloaded methods
             List<Map<String, String>> formattedPairs = callPairs.stream()
-                .map(entry -> {
-                    Map<String, String> pair = new HashMap<>();
-                    pair.put("caller", NameFilter.getFilteredMethodSignatureWithParams(entry.getKey()));
-                    pair.put("thirdPartyMethod", NameFilter.getFilteredMethodSignatureWithParams(entry.getValue()));
-                    return pair;
-                })
-                .sorted(Comparator.comparing(p -> p.get("caller")))
-                .collect(Collectors.toList());
+                    .map(entry -> {
+                        Map<String, String> pair = new HashMap<>();
+                        pair.put("caller", NameFilter.getFilteredMethodSignatureWithParams(entry.getKey()));
+                        pair.put("thirdPartyMethod", NameFilter.getFilteredMethodSignatureWithParams(entry.getValue()));
+                        return pair;
+                    })
+                    .sorted(Comparator.comparing(p -> p.get("caller")))
+                    .collect(Collectors.toList());
             String outputPath = reportPath.replace(".json", "_all_third_party_calls.json");
             File outputFile = new File(outputPath);
             Map<String, Object> output = new HashMap<>();
             output.put("totalUniquePairs", callPairs.size());
             output.put("callPairs", formattedPairs);
             mapper.writerWithDefaultPrettyPrinter().writeValue(outputFile, output);
-            log.info("Successfully wrote {} unique third-party call pairs to {}", 
+            log.info("Successfully wrote {} unique third-party call pairs to {}",
                     callPairs.size(), outputFile.getAbsolutePath());
         } catch (Exception e) {
             log.error("Failed to write call pairs to JSON", e);

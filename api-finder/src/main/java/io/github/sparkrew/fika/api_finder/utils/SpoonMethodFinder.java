@@ -2,11 +2,11 @@ package io.github.sparkrew.fika.api_finder.utils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sootup.core.signatures.MethodSignature;
 import spoon.reflect.CtModel;
 import spoon.reflect.declaration.CtConstructor;
 import spoon.reflect.declaration.CtMethod;
-import spoon.reflect.declaration. CtType;
-import sootup.core.signatures.MethodSignature;
+import spoon.reflect.declaration.CtType;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -119,7 +119,7 @@ public class SpoonMethodFinder {
      * If there are multiple constructors, tries to match by parameter count.
      * Otherwise returns the first constructor.
      */
-    public static CtConstructor<? > findConstructor(CtType<?> ctType, MethodSignature methodSig) {
+    public static CtConstructor<?> findConstructor(CtType<?> ctType, MethodSignature methodSig) {
         // Get all constructors
         var constructors = ctType.getElements(
                 element -> element instanceof spoon.reflect.declaration.CtConstructor
@@ -140,7 +140,7 @@ public class SpoonMethodFinder {
                         .findFirst();
         if (matchingConstructor.isPresent()) {
             // Get the pretty-printed source code for the matching constructor, toString does not give proper source
-            return matchingConstructor. get();
+            return matchingConstructor.get();
         }
         // Screw it, we give up, fall back to first constructor
         log.warn("Multiple constructors found, returning first one for {}", ctType.getQualifiedName());
@@ -164,7 +164,7 @@ public class SpoonMethodFinder {
             String spoonTypeName = spoonParam.getType().getQualifiedName();
             String sootTypeName = sootParam.toString();
             // Try to match by simple name or qualified name
-            if (! typesMatch(spoonTypeName, sootTypeName)) {
+            if (!typesMatch(spoonTypeName, sootTypeName)) {
                 return false;
             }
         }

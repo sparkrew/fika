@@ -2,7 +2,10 @@ package io.github.sparkrew.fika.api_finder;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import io.github.sparkrew.fika.api_finder.model.*;
+import io.github.sparkrew.fika.api_finder.model.AnalysisResult;
+import io.github.sparkrew.fika.api_finder.model.ClassMemberData;
+import io.github.sparkrew.fika.api_finder.model.FullMethodsPathData;
+import io.github.sparkrew.fika.api_finder.model.ThirdPartyPath;
 import io.github.sparkrew.fika.api_finder.utils.NameFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,8 +62,8 @@ public class PathWriter {
                         .map(NameFilter::getFilteredMethodSignatureWithParams)
                         .collect(Collectors.toList());
                 // Direct caller is the second-to-last method in the path (before the third party method)
-                String directCaller = pathStrings.size() >= 2 ? 
-                        pathStrings.get(pathStrings.size() - 2) : 
+                String directCaller = pathStrings.size() >= 2 ?
+                        pathStrings.get(pathStrings.size() - 2) :
                         pathStrings.get(0);
                 FullMethodsPathData data = new FullMethodsPathData(
                         NameFilter.getFilteredMethodSignatureWithParams(tp.entryPoint()),

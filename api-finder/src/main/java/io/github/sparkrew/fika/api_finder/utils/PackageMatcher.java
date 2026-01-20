@@ -26,8 +26,8 @@ public class PackageMatcher {
     private static final List<String> ignoredPrefixes = Arrays.asList(
             "java.", "jdk.", "sun.", "com.sun."
     );
-    private static boolean loaded = false;
     private static final String DEFAULT_IGNORED_FILE = "ignored_packages.txt";
+    private static boolean loaded = false;
 
     /**
      * Returns the Maven coordinates for a given package name.

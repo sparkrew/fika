@@ -282,7 +282,7 @@ public class CoverageFilter {
             if (pre != null) {
                 String source = pre.wholeText();
                 if (source.contains("class ") && source.contains("extends ") && source.contains(shortTargetClassName)
-                && source.contains(shortCallerClassName)) {
+                        && source.contains(shortCallerClassName)) {
                     return true;
                 }
             }
