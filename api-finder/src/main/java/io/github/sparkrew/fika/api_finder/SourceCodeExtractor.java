@@ -643,7 +643,7 @@ public class SourceCodeExtractor {
                 qualifiedName = qualifiedName.substring(0, qualifiedName.indexOf("<"));
             }
             qualifiedName = qualifiedName.replace("[]", "");
-            qualifiedName = filterNameSimple2(qualifiedName);
+            qualifiedName = filterName(qualifiedName);
             imports.add(qualifiedName);
             typeRef.getActualTypeArguments().forEach(typeArg -> addTypeImport(typeArg, imports));
         }

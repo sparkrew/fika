@@ -26,13 +26,8 @@ public class NameFilter {
     }
 
     public static String filterNameSimple(String name) {
-        // Replace $ followed by digit (e.g., $Array1234) with nothing
+        // Replace $ followed by digit (e.g., $1234) with nothing
         name = name.replaceAll("\\$\\d+", "");
-        return name;
-    }
-
-    public static String filterNameSimple2(String name) {
-        name = name.replaceAll("\\$(?=[A-Za-z])", ".");
         return name;
     }
 }
