@@ -30,4 +30,9 @@ public class NameFilter {
         name = name.replaceAll("\\$\\d+", "");
         return name;
     }
+
+    public static String filterNameSimple2(String name) {
+        name = name.replaceAll("\\$(?=[A-Za-z])", ".");
+        return name;
+    }
 }

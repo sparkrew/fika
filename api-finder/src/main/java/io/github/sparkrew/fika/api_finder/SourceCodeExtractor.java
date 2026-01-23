@@ -16,6 +16,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import static io.github.sparkrew.fika.api_finder.utils.NameFilter.filterNameSimple;
+import static io.github.sparkrew.fika.api_finder.utils.NameFilter.filterNameSimple2;
 
 /**
  * Extracts actual source code from Java files using Spoon.
@@ -642,6 +643,7 @@ public class SourceCodeExtractor {
                 qualifiedName = qualifiedName.substring(0, qualifiedName.indexOf("<"));
             }
             qualifiedName = qualifiedName.replace("[]", "");
+            qualifiedName = filterNameSimple2(qualifiedName);
             imports.add(qualifiedName);
             typeRef.getActualTypeArguments().forEach(typeArg -> addTypeImport(typeArg, imports));
         }
@@ -658,8 +660,21 @@ public class SourceCodeExtractor {
                 .filter(imp -> imp.contains("."))
                 .filter(imp -> !imp.startsWith("java."))
                 .filter(imp -> !isPrimitiveOrWrapper(imp))
-                .filter(imp -> !imp.startsWith(currentPackage + ".") || imp.contains("$"))
+                .filter(imp -> !imp.startsWith(currentPackage + ".") || isInnerClass(imp, currentPackage))
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Check if an import represents an inner class from the same package.
+     * An inner class will have more dots after the package prefix.
+     */
+    private static boolean isInnerClass(String importName, String currentPackage) {
+        if (!importName.startsWith(currentPackage + ".")) {
+            return false;
+        }
+        String afterPackage = importName.substring(currentPackage.length() + 1);
+        // If there's another dot after the package, it's an inner class (e.g., package.Outer.Inner)
+        return afterPackage.contains(".");
     }
 
     /**
