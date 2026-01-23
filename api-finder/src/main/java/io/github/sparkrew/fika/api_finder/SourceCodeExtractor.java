@@ -16,6 +16,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import static io.github.sparkrew.fika.api_finder.utils.NameFilter.filterNameSimple;
+import static io.github.sparkrew.fika.api_finder.utils.NameFilter.filterName;
 
 /**
  * Extracts actual source code from Java files using Spoon.
