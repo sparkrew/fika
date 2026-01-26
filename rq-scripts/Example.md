@@ -1,0 +1,511 @@
+## Extracted by Fika
+
+```json
+
+{
+      "entryPoint": "com.graphhopper.routing.ch.CHPreparationGraph.prepareForContraction()",
+      "thirdPartyMethod": "com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)",
+      "directCaller": "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder.build()",
+      "path": [
+        "com.graphhopper.routing.ch.CHPreparationGraph.prepareForContraction()",
+        "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder.build()",
+        "com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)"
+      ],
+      "methodSources": [
+        "public void prepareForContraction() {\n    checkNotReady();\n    // PATH: Test should invoke the next CHPreparationGraph$OrigGraph$Builder.build(...) [step in execution path]\n    origGraph = (edgeBased) ? origGraphBuilder.build() : null;\n    origGraphBuilder = null;\n    ready = true;\n}",
+        "OrigGraph build() {\n    // PATH: Test should invoke the next IndirectSort.mergesort(...) [step in execution path]\n    int[] sortOrder = IndirectSort.mergesort(0, fromNodes.elementsCount, new IndirectComparator.AscendingIntComparator(fromNodes.buffer));\n    sortAndTrim(fromNodes, sortOrder);\n    sortAndTrim(toNodesAndFwdFlags, sortOrder);\n    sortAndTrim(keysAndBwdFlags, sortOrder);\n    return new OrigGraph(buildFirstEdgesByNode(), toNodesAndFwdFlags, keysAndBwdFlags);\n}"
+      ],
+      "constructors": [
+        "/**\n *\n * @param nodes\n * \t\t(fixed) number of nodes of the graph\n * @param edges\n * \t\tthe maximum number of (non-shortcut) edges in this graph. edges-1 is the maximum edge id that may\n * \t\tbe used.\n */\nprivate CHPreparationGraph(int nodes, int edges, boolean edgeBased, TurnCostFunction turnCostFunction) {\n    this.turnCostFunction = turnCostFunction;\n    this.nodes = nodes;\n    this.edges = edges;\n    this.edgeBased = edgeBased;\n    prepareEdgesOut = new PrepareEdge[nodes];\n    prepareEdgesIn = new PrepareEdge[nodes];\n    shortcutsByPrepareEdges = new IntArrayList();\n    degrees = new int[nodes];\n    origGraphBuilder = (edgeBased) ? new OrigGraph.Builder() : null;\n    neighborSet = new IntScatterSet();\n    nextShortcutId = edges;\n}",
+        "PrepareGraphEdgeExplorerImpl(PrepareEdge[] prepareEdges, boolean reverse) {\n    this.prepareEdges = prepareEdges;\n    this.reverse = reverse;\n}",
+        "public PrepareBaseEdge(int prepareEdge, int nodeA, int nodeB, float weightAB, float weightBA) {\n    this.prepareEdge = prepareEdge;\n    this.nodeA = nodeA;\n    this.nodeB = nodeB;\n    this.weightAB = weightAB;\n    this.weightBA = weightBA;\n}",
+        "private PrepareShortcut(int prepareEdge, int from, int to, double weight, int skipped1, int skipped2, int origEdgeCount) {\n    this.prepareEdge = prepareEdge;\n    this.from = from;\n    this.to = to;\n    assert Double.isFinite(weight);\n    this.weight = weight;\n    this.skipped1 = skipped1;\n    this.skipped2 = skipped2;\n    this.origEdgeCount = origEdgeCount;\n}",
+        "public EdgeBasedPrepareShortcut(int prepareEdge, int from, int to, int origEdgeKeyFirst, int origEdgeKeyLast, double weight, int skipped1, int skipped2, int origEdgeCount) {\n    super(prepareEdge, from, to, weight, skipped1, skipped2, origEdgeCount);\n    this.origEdgeKeyFirst = origEdgeKeyFirst;\n    this.origEdgeKeyLast = origEdgeKeyLast;\n}",
+        "private OrigGraph(IntArrayList firstEdgesByNode, IntArrayList adjNodesAndFwdFlags, IntArrayList keysAndBwdFlags) {\n    this.firstEdgesByNode = firstEdgesByNode;\n    this.adjNodesAndFwdFlags = adjNodesAndFwdFlags;\n    this.keysAndBwdFlags = keysAndBwdFlags;\n}",
+        "Builder() {\n}",
+        "public OrigEdgeIteratorImpl(OrigGraph graph, boolean reverse) {\n    this.graph = graph;\n    this.reverse = reverse;\n}",
+        "public static CHPreparationGraph edgeBased(int nodes, int edges, TurnCostFunction turnCostFunction) {\n    return new CHPreparationGraph(nodes, edges, true, turnCostFunction);\n}",
+        "public static CHPreparationGraph nodeBased(int nodes, int edges) {\n    return new CHPreparationGraph(nodes, edges, false, (in, via, out) -> 0);\n}"
+      ],
+      "fieldDeclarations": [
+        "private final int nodes;",
+        "private final int edges;",
+        "private final boolean edgeBased;",
+        "private final TurnCostFunction turnCostFunction;",
+        "// each edge/shortcut between nodes a/b is represented as a single object and we maintain two linked lists of such\n// objects for every node (one for outgoing edges and one for incoming edges).\nprivate PrepareEdge[] prepareEdgesOut;",
+        "private PrepareEdge[] prepareEdgesIn;",
+        "// todo: it should be possible to store the 'skipped node' for each shortcut instead of storing the shortcut for\n// each prepare edge. but this is a bit tricky for edge-based, because of our bidir shortcuts for node-based,\n// and because basegraph has multi-edges. the advantage of storing the skipped node is that we could just write\n// it to one of the skipped edges fields temporarily, so we would not need this array and save memory during\n// the preparation.\nprivate IntArrayList shortcutsByPrepareEdges;",
+        "// todo: maybe we can get rid of this\nprivate int[] degrees;",
+        "private IntSet neighborSet;",
+        "private OrigGraph origGraph;",
+        "private OrigGraph.Builder origGraphBuilder;",
+        "private int nextShortcutId;",
+        "private boolean ready;"
+      ],
+      "setters": [
+        "public void addEdge(int from, int to, int edge, double weightFwd, double weightBwd) {\n    checkNotReady();\n    if (from == to)\n        throw new IllegalArgumentException(\"Loop edges are no longer supported since #2862\");\n\n    boolean fwd = Double.isFinite(weightFwd);\n    boolean bwd = Double.isFinite(weightBwd);\n    if ((!fwd) && (!bwd))\n        return;\n\n    PrepareBaseEdge prepareEdge = new PrepareBaseEdge(edge, from, to, ((float) (weightFwd)), ((float) (weightBwd)));\n    if (fwd) {\n        addOutEdge(from, prepareEdge);\n        addInEdge(to, prepareEdge);\n    }\n    if (bwd && (from != to)) {\n        addOutEdge(to, prepareEdge);\n        addInEdge(from, prepareEdge);\n    }\n    if (edgeBased)\n        origGraphBuilder.addEdge(from, to, edge, fwd, bwd);\n\n}",
+        "public void close() {\n    checkReady();\n    prepareEdgesOut = null;\n    prepareEdgesIn = null;\n    shortcutsByPrepareEdges = null;\n    degrees = null;\n    neighborSet = null;\n    if (edgeBased)\n        origGraph = null;\n\n}",
+        "public void prepareForContraction() {\n    checkNotReady();\n    origGraph = (edgeBased) ? origGraphBuilder.build() : null;\n    origGraphBuilder = null;\n    ready = true;\n}",
+        "public void setShortcutForPrepareEdge(int prepareEdge, int shortcut) {\n    int index = prepareEdge - edges;\n    if (index >= shortcutsByPrepareEdges.size())\n        shortcutsByPrepareEdges.resize(index + 1);\n\n    shortcutsByPrepareEdges.set(index, shortcut);\n}"
+      ],
+      "imports": [
+        "com.carrotsearch.hppc.IntArrayList",
+        "com.carrotsearch.hppc.IntCollection",
+        "com.carrotsearch.hppc.IntContainer",
+        "com.carrotsearch.hppc.IntScatterSet",
+        "com.carrotsearch.hppc.IntSet",
+        "com.graphhopper.routing.ch.CHPreparationGraph.EdgeBasedPrepareShortcut",
+        "com.graphhopper.routing.ch.CHPreparationGraph.OrigEdgeIteratorImpl",
+        "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph",
+        "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder",
+        "com.graphhopper.routing.ch.CHPreparationGraph.PrepareBaseEdge",
+        "com.graphhopper.routing.ch.CHPreparationGraph.PrepareEdge",
+        "com.graphhopper.routing.ch.CHPreparationGraph.PrepareGraphEdgeExplorerImpl",
+        "com.graphhopper.routing.ch.CHPreparationGraph.PrepareShortcut",
+        "com.graphhopper.routing.ch.CHPreparationGraph.TurnCostFunction",
+        "com.graphhopper.util.GHUtility"
+      ],
+      "testTemplate": "package com.graphhopper.routing.ch;\n\npublic class CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest {\n\n    @Test\n    public void testPrepareForContraction() {\n    }\n}",
+      "conditionCount": 1,
+      "callCount": 1,
+      "covered": true
+    }
+```
+
+## Logs
+
+PROCESSING TEST CASE 131/185
+Entry Point: com.graphhopper.routing.ch.CHPreparationGraph.prepareForContraction()
+Third Party Method: com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)
+
+[Generate] produced 1781 chars
+
+ITERATION 1 — PROMPT
+
+You are an expert Java developer who writes good unit tests in order to maximize code coverage. You are specialized in Maven and JUnit 5 testing framework.
+
+Generate a JUnit 5 test that executes the full chain of method calls starting from the specified entry point method and reaching the specified third-party method. No assertions, inspections, or verifications are required. The test’s only goal is to try invoking the given third-party method during execution. 
+
+You are provided with:
+entryPoint: Fully qualified public method where execution must begin.
+thirdPartyMethod: Fully qualified third-party method that must be invoked.
+path: Ordered list of method calls that must be traversed during execution.
+methodSources: Complete and exact source code for all methods in the call chain.
+constructors: All constructors of the class containing the entryPoint. Use one of these constructors to instantiate the class in the test. Then use that instance to call the entryPoint method.
+fieldDeclarations: Instance variables and class variables of the class containing the entryPoint. These are the fields that can be accessed or set when creating the test.
+setters: All setters of the entryPoint class that can modify the declared fields.
+imports: All non-core-java imports that may be required by the test.
+
+entryPoint: com.graphhopper.routing.ch.CHPreparationGraph.prepareForContraction()
+thirdPartyMethod: com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)
+path: com.graphhopper.routing.ch.CHPreparationGraph.prepareForContraction() -> com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder.build() -> com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)
+methodSources:
+```java
+public void prepareForContraction() {
+    checkNotReady();
+    // PATH: Test should invoke the next CHPreparationGraph$OrigGraph$Builder.build(...) [step in execution path]
+    origGraph = (edgeBased) ? origGraphBuilder.build() : null;
+    origGraphBuilder = null;
+    ready = true;
+}
+
+OrigGraph build() {
+    // PATH: Test should invoke the next IndirectSort.mergesort(...) [step in execution path]
+    int[] sortOrder = IndirectSort.mergesort(0, fromNodes.elementsCount, new IndirectComparator.AscendingIntComparator(fromNodes.buffer));
+    sortAndTrim(fromNodes, sortOrder);
+    sortAndTrim(toNodesAndFwdFlags, sortOrder);
+    sortAndTrim(keysAndBwdFlags, sortOrder);
+    return new OrigGraph(buildFirstEdgesByNode(), toNodesAndFwdFlags, keysAndBwdFlags);
+}
+```
+constructors:
+```java
+/**
+ *
+ * @param nodes
+ * 		(fixed) number of nodes of the graph
+ * @param edges
+ * 		the maximum number of (non-shortcut) edges in this graph. edges-1 is the maximum edge id that may
+ * 		be used.
+ */
+private CHPreparationGraph(int nodes, int edges, boolean edgeBased, TurnCostFunction turnCostFunction) {
+    this.turnCostFunction = turnCostFunction;
+    this.nodes = nodes;
+    this.edges = edges;
+    this.edgeBased = edgeBased;
+    prepareEdgesOut = new PrepareEdge[nodes];
+    prepareEdgesIn = new PrepareEdge[nodes];
+    shortcutsByPrepareEdges = new IntArrayList();
+    degrees = new int[nodes];
+    origGraphBuilder = (edgeBased) ? new OrigGraph.Builder() : null;
+    neighborSet = new IntScatterSet();
+    nextShortcutId = edges;
+}
+
+PrepareGraphEdgeExplorerImpl(PrepareEdge[] prepareEdges, boolean reverse) {
+    this.prepareEdges = prepareEdges;
+    this.reverse = reverse;
+}
+
+public PrepareBaseEdge(int prepareEdge, int nodeA, int nodeB, float weightAB, float weightBA) {
+    this.prepareEdge = prepareEdge;
+    this.nodeA = nodeA;
+    this.nodeB = nodeB;
+    this.weightAB = weightAB;
+    this.weightBA = weightBA;
+}
+
+private PrepareShortcut(int prepareEdge, int from, int to, double weight, int skipped1, int skipped2, int origEdgeCount) {
+    this.prepareEdge = prepareEdge;
+    this.from = from;
+    this.to = to;
+    assert Double.isFinite(weight);
+    this.weight = weight;
+    this.skipped1 = skipped1;
+    this.skipped2 = skipped2;
+    this.origEdgeCount = origEdgeCount;
+}
+
+public EdgeBasedPrepareShortcut(int prepareEdge, int from, int to, int origEdgeKeyFirst, int origEdgeKeyLast, double weight, int skipped1, int skipped2, int origEdgeCount) {
+    super(prepareEdge, from, to, weight, skipped1, skipped2, origEdgeCount);
+    this.origEdgeKeyFirst = origEdgeKeyFirst;
+    this.origEdgeKeyLast = origEdgeKeyLast;
+}
+
+private OrigGraph(IntArrayList firstEdgesByNode, IntArrayList adjNodesAndFwdFlags, IntArrayList keysAndBwdFlags) {
+    this.firstEdgesByNode = firstEdgesByNode;
+    this.adjNodesAndFwdFlags = adjNodesAndFwdFlags;
+    this.keysAndBwdFlags = keysAndBwdFlags;
+}
+
+Builder() {
+}
+
+public OrigEdgeIteratorImpl(OrigGraph graph, boolean reverse) {
+    this.graph = graph;
+    this.reverse = reverse;
+}
+
+public static CHPreparationGraph edgeBased(int nodes, int edges, TurnCostFunction turnCostFunction) {
+    return new CHPreparationGraph(nodes, edges, true, turnCostFunc
+... (prompt truncated, total 9805 chars)
+```
+ITERATION 1 — GENERATED JAVA
+
+```java
+package com.graphhopper.routing.ch;
+
+import com.carrotsearch.hppc.IntArrayList;
+import com.carrotsearch.hppc.IntScatterSet;
+import com.carrotsearch.hppc.IntSet;
+import com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph;
+import com.graphhopper.routing.ch.CHPreparationGraph.PrepareBaseEdge;
+import com.graphhopper.routing.ch.CHPreparationGraph.PrepareEdge;
+import com.graphhopper.routing.ch.CHPreparationGraph.PrepareGraphEdgeExplorerImpl;
+import com.graphhopper.routing.ch.CHPreparationGraph.PrepareShortcut;
+import com.graphhopper.routing.ch.CHPreparationGraph.TurnCostFunction;
+import com.graphhopper.routing.ch.CHPreparationGraph.EdgeBasedPrepareShortcut;
+import com.graphhopper.routing.ch.CHPreparationGraph.OrigEdgeIteratorImpl;
+import com.graphhopper.util.GHUtility;
+import org.junit.jupiter.api.Test;
+
+import static org.mockito.Mockito.mock;
+
+public class CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest {
+
+    @Test
+    public void testPrepareForContractionTriggersIndirectSortMergesort() {
+        // Create a mock TurnCostFunction since it's required for edge-based constructor
+        TurnCostFunction turnCostFunction = mock(TurnCostFunction.class);
+        
+        // Create edge-based CHPreparationGraph with minimal size
+        CHPreparationGraph graph = CHPreparationGraph.edgeBased(2, 1, turnCostFunction);
+        
+        // Add at least one edge to ensure origGraphBuilder has data
+        // This is necessary because build() will be called and IndirectSort.mergesort requires elements
+        graph.addEdge(0, 1, 0, 1.0, 1.0);
+        
+        // Call the entry point which should trigger the chain:
+        // prepareForContraction() -> origGraphBuilder.build() -> IndirectSort.mergesort()
+        graph.prepareForContraction();
+    }
+}
+```
+
+[Write] wrote to /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/src/test/java/com/graphhopper/routing/ch/CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest.java
+[Validate] PASSED - hard constraints satisfied
+[Run] feedback_chars=1275
+
+ITERATION 1 — MAVEN RESULT
+
+success=False exit_code=1
+
+COMPILATION ERRORS DETECTED
+
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/src/test/java/com/graphhopper/routing/ch/CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest.java:[9,52] error: PrepareGraphEdgeExplorerImpl has private access in CHPreparationGraph
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/src/test/java/com/graphhopper/routing/ch/CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest.java:[10,52] error: PrepareShortcut has private access in CHPreparationGraph
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/src/test/java/com/graphhopper/routing/ch/CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest.java:[12,52] error: EdgeBasedPrepareShortcut has private access in CHPreparationGraph
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/src/test/java/com/graphhopper/routing/ch/CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest.java:[13,52] error: OrigEdgeIteratorImpl has private access in CHPreparationGraph
+
+[Coverage] target 'com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)' covered=False
+
+ITERATION 1 — COVERAGE
+
+{
+  "method_covered": false,
+  "total_covered_lines": 0,
+  "error": "Method is not covered: JaCoCo report not generated",
+  "path_coverage_details": [
+    {
+      "index": 1,
+      "method": "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder.build()",
+      "method_class": "com.graphhopper.routing.ch.CHPreparationGraph",
+      "covered": false,
+      "error": "Method is not covered: JaCoCo report not generated"
+    },
+    {
+      "index": 2,
+      "method": "com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)",
+      "method_class": "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder",
+      "covered": false,
+      "error": "Method is not covered: JaCoCo report not generated"
+    }
+  ]
+}
+[Decide] approved=False (tests failed, will retry if iteration<5)
+
+ITERATION 1 — DECISION
+
+approved=False reason=tests_failed
+[Generate] produced 973 chars
+
+ITERATION 2 — PROMPT
+
+You are an expert Java developer who writes good unit tests in order to maximize code coverage. You are specialized in Maven and JUnit 5 testing framework.
+
+Generate a JUnit 5 test that executes the full chain of method calls starting from the specified entry point method and reaching the specified third-party method. No assertions, inspections, or verifications are required. The test’s only goal is to try invoking the given third-party method during execution. 
+
+You are provided with:
+entryPoint: Fully qualified public method where execution must begin.
+thirdPartyMethod: Fully qualified third-party method that must be invoked.
+path: Ordered list of method calls that must be traversed during execution.
+methodSources: Complete and exact source code for all methods in the call chain.
+constructors: All constructors of the class containing the entryPoint. Use one of these constructors to instantiate the class in the test. Then use that instance to call the entryPoint method.
+fieldDeclarations: Instance variables and class variables of the class containing the entryPoint. These are the fields that can be accessed or set when creating the test.
+setters: All setters of the entryPoint class that can modify the declared fields.
+imports: All non-core-java imports that may be required by the test.
+
+entryPoint: com.graphhopper.routing.ch.CHPreparationGraph.prepareForContraction()
+thirdPartyMethod: com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)
+path: com.graphhopper.routing.ch.CHPreparationGraph.prepareForContraction() -> com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder.build() -> com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)
+methodSources:
+```java
+public void prepareForContraction() {
+    checkNotReady();
+    // PATH: Test should invoke the next CHPreparationGraph$OrigGraph$Builder.build(...) [step in execution path]
+    origGraph = (edgeBased) ? origGraphBuilder.build() : null;
+    origGraphBuilder = null;
+    ready = true;
+}
+
+OrigGraph build() {
+    // PATH: Test should invoke the next IndirectSort.mergesort(...) [step in execution path]
+    int[] sortOrder = IndirectSort.mergesort(0, fromNodes.elementsCount, new IndirectComparator.AscendingIntComparator(fromNodes.buffer));
+    sortAndTrim(fromNodes, sortOrder);
+    sortAndTrim(toNodesAndFwdFlags, sortOrder);
+    sortAndTrim(keysAndBwdFlags, sortOrder);
+    return new OrigGraph(buildFirstEdgesByNode(), toNodesAndFwdFlags, keysAndBwdFlags);
+}
+```
+constructors:
+```java
+/**
+ *
+ * @param nodes
+ * 		(fixed) number of nodes of the graph
+ * @param edges
+ * 		the maximum number of (non-shortcut) edges in this graph. edges-1 is the maximum edge id that may
+ * 		be used.
+ */
+private CHPreparationGraph(int nodes, int edges, boolean edgeBased, TurnCostFunction turnCostFunction) {
+    this.turnCostFunction = turnCostFunction;
+    this.nodes = nodes;
+    this.edges = edges;
+    this.edgeBased = edgeBased;
+    prepareEdgesOut = new PrepareEdge[nodes];
+    prepareEdgesIn = new PrepareEdge[nodes];
+    shortcutsByPrepareEdges = new IntArrayList();
+    degrees = new int[nodes];
+    origGraphBuilder = (edgeBased) ? new OrigGraph.Builder() : null;
+    neighborSet = new IntScatterSet();
+    nextShortcutId = edges;
+}
+
+PrepareGraphEdgeExplorerImpl(PrepareEdge[] prepareEdges, boolean reverse) {
+    this.prepareEdges = prepareEdges;
+    this.reverse = reverse;
+}
+
+public PrepareBaseEdge(int prepareEdge, int nodeA, int nodeB, float weightAB, float weightBA) {
+    this.prepareEdge = prepareEdge;
+    this.nodeA = nodeA;
+    this.nodeB = nodeB;
+    this.weightAB = weightAB;
+    this.weightBA = weightBA;
+}
+
+private PrepareShortcut(int prepareEdge, int from, int to, double weight, int skipped1, int skipped2, int origEdgeCount) {
+    this.prepareEdge = prepareEdge;
+    this.from = from;
+    this.to = to;
+    assert Double.isFinite(weight);
+    this.weight = weight;
+    this.skipped1 = skipped1;
+    this.skipped2 = skipped2;
+    this.origEdgeCount = origEdgeCount;
+}
+
+public EdgeBasedPrepareShortcut(int prepareEdge, int from, int to, int origEdgeKeyFirst, int origEdgeKeyLast, double weight, int skipped1, int skipped2, int origEdgeCount) {
+    super(prepareEdge, from, to, weight, skipped1, skipped2, origEdgeCount);
+    this.origEdgeKeyFirst = origEdgeKeyFirst;
+    this.origEdgeKeyLast = origEdgeKeyLast;
+}
+
+private OrigGraph(IntArrayList firstEdgesByNode, IntArrayList adjNodesAndFwdFlags, IntArrayList keysAndBwdFlags) {
+    this.firstEdgesByNode = firstEdgesByNode;
+    this.adjNodesAndFwdFlags = adjNodesAndFwdFlags;
+    this.keysAndBwdFlags = keysAndBwdFlags;
+}
+
+Builder() {
+}
+
+public OrigEdgeIteratorImpl(OrigGraph graph, boolean reverse) {
+    this.graph = graph;
+    this.reverse = reverse;
+}
+
+public static CHPreparationGraph edgeBased(int nodes, int edges, TurnCostFunction turnCostFunction) {
+    return new CHPreparationGraph(nodes, edges, true, turnCostFunc
+```
+... (prompt truncated, total 11080 chars)
+
+ITERATION 2 — GENERATED JAVA
+
+```java
+package com.graphhopper.routing.ch;
+
+import com.carrotsearch.hppc.IntArrayList;
+import com.carrotsearch.hppc.IntScatterSet;
+import com.carrotsearch.hppc.IntSet;
+import com.graphhopper.routing.ch.CHPreparationGraph.TurnCostFunction;
+import org.junit.jupiter.api.Test;
+
+class CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest {
+
+    @Test
+    void testPrepareForContractionTriggersIndirectSortMergesort() {
+        // Create an edge-based CHPreparationGraph to ensure origGraphBuilder is not null
+        TurnCostFunction turnCostFunction = (in, via, out) -> 0;
+        CHPreparationGraph graph = CHPreparationGraph.edgeBased(5, 10, turnCostFunction);
+        
+        // Add at least one edge to ensure origGraphBuilder has data to sort
+        graph.addEdge(0, 1, 0, 1.0, 1.0);
+        
+        // This call should traverse through origGraphBuilder.build() 
+        // and eventually invoke IndirectSort.mergesort
+        graph.prepareForContraction();
+    }
+}
+```
+
+[Write] wrote to /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/src/test/java/com/graphhopper/routing/ch/CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest.java
+[Validate] PASSED - hard constraints satisfied
+[Run] feedback_chars=2878
+
+ITERATION 2 — MAVEN RESULT
+
+success=True exit_code=0
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------< com.graphhopper:graphhopper-core >------------------
+[INFO] Building GraphHopper Core 12.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ graphhopper-core ---
+[INFO] Deleting /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/target
+[INFO] 
+[INFO] --- jacoco:0.8.14:prepare-agent (prepare-agent) @ graphhopper-core ---
+[INFO] argLine set to -javaagent:/u/gamageyo/.m2/repository/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar=destfile=/part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/target/jacoco.exec
+[INFO] 
+[INFO] --- git-commit-id:3.0.0:revision (default) @ graphhopper-core ---
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ graphhopper-core ---
+[INFO] Copying 3 resources from src/main/resources to target/classes
+[INFO] Copying 79 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.8.1:compile (default-compile) @ graphhopper-core ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 463 source files to /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/target/classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ graphhopper-core ---
+[INFO] Copying 36 resources from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.8.1:testCompile (default-testCompile) @ graphhopper-core ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 252 source files to /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/target/test-classes
+[INFO] 
+[INFO] --- surefire:2.22.2:test (default-test) @ graphhopper-core ---
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.graphhopper.routing.ch.CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.467 s - in com.graphhopper.routing.ch.CHPreparationGraph_Builderbuild_IndirectSortmergesortFikaTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jacoco:0.8.14:report (report) @ graphhopper-core ---
+[INFO] Loading execution data file /part/01/Tmp/gamageyo/fika/experiments/graphhopper/core/target/jacoco.exec
+[INFO] Analyzed bundle 'GraphHopper Core' with 545 classes
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  21.559 s
+[INFO] Finished at: 2026-01-23T17:47:50-05:00
+[INFO] ------------------------------------------------------------------------
+[Coverage] target 'com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)' covered=True
+
+ITERATION 2 — COVERAGE
+
+{
+  "method_covered": true,
+  "total_covered_lines": 97,
+  "error": null,
+  "path_coverage_details": [
+    {
+      "index": 1,
+      "method": "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder.build()",
+      "method_class": "com.graphhopper.routing.ch.CHPreparationGraph",
+      "covered": true,
+      "error": null
+    },
+    {
+      "index": 2,
+      "method": "com.carrotsearch.hppc.sorting.IndirectSort.mergesort(int, int, com.carrotsearch.hppc.sorting.IndirectComparator)",
+      "method_class": "com.graphhopper.routing.ch.CHPreparationGraph.OrigGraph.Builder",
+      "covered": true,
+      "error": null
+    }
+  ]
+}
+[Decide] approved=True (tests passed AND target method covered)
+
+ITERATION 2 — DECISION
+
+approved=True reason=passed+covered
+[Finalize] SUCCESS: Test passed and target method covered
