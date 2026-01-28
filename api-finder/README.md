@@ -364,5 +364,4 @@ Below are known edge cases / minor bugs in Fika:
 ## Future Improvements
 
 - Integration with other coverage tools beyond JaCoCo (When Fika considers the quality of test oracles)
-- Parallel processing for large projects
 - Incremental analysis (only analyze changed code)
