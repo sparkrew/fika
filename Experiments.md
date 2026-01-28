@@ -1,15 +1,17 @@
 # Experiments
 
-We have evaluated 08 projects with Fika.
+We have executed Fika with 08 modules from 08 projects.
 
-[flink]()     
-[pdfBox]()      
-[graphhopper]()
-[poi-tl]()        
-[mybatis]()       
-[tablesaw]()      
-[tika]()
-[checkstyle]()
+| Project         | Module     | Commit Hash |
+| --------------- | ---------- | ----------- |
+| [flink](https://github.com/apache/flink)       | flink-core |  faf0d54    |
+| [pdfBox](https://github.com/apache/pdfbox)      | pdfbox     |  f7a84ec    |
+| [graphhopper](https://github.com/graphhopper/graphhopper ) | core       |  1c811e5    |
+| [poi-tl](https://github.com/Sayi/poi-tl)      | poi-tl     |  58fdb6c    |
+| [mybatis](https://github.com/mybatis/mybatis-3)     | —          |  57c7c41    |
+| [tablesaw](https://github.com/jtablesaw/tablesaw)    | json       |  faf0d54    |
+| [tika](https://github.com/apache/tika)        | tika-core  |  bb785a2    |
+| [checkstyle](https://github.com/checkstyle/checkstyle)  | —          |     865e66b    |
 
 
 ## Steps for reproducing the results
@@ -26,15 +28,12 @@ Setup
 Then, for each project, run the following steps:
 
 1. git clone the GitHub projects
-2. run mvn clean install
-3. check if it was successful
-4. if unsuccessful, try git checkout to the latest tag (because tags tend to be more stable) and repeat step 2
-5. if it is still unsuccessful, discard the project
-6. if it is successful, continue to the next steps 
-7. if it is a multi-module project, the module we consider is indicated after the hyphen in the link above 
-8. cd to the module directory for those multi-module projects (for single module projects just stay under the root folder.)
-9. check if the project has jacoco plugin configured in the pom.xml 
-10. if not, add the jacoco plugin configuration to the pom.xml as given below. This should place under the <build><plugins> section of the pom.xml. If it is placed under any other tag (pluginManagement, profiles etc.), it will not work. So, please double check.
+2. checkout to the given commit hash
+3. run mvn clean install
+4. if it is a multi-module project, the module we consider is indicated after the hyphen in the link above 
+5. cd to the module directory for those multi-module projects (for single module projects just stay under the root folder.)
+6. check if the project has jacoco plugin configured in the pom.xml 
+7. if not, add the jacoco plugin configuration to the pom.xml as given below. This should be placed under the <build><plugins> section of the pom.xml. If it is placed under any other tag (pluginManagement, profiles etc.), it will not work.
 ```xml
 <plugin>
     <groupId>org.jacoco</groupId>
@@ -57,14 +56,13 @@ Then, for each project, run the following steps:
     </executions>
 </plugin>
 ```
-1.  Check if the surefire plugin is configured in the pom (<artifactId>maven-surefire-plugin</artifactId>). This can be also under the root pom.xml or the module pom.xml. This plugin should definitely be there. Then, check if it has a line similar to <configuration><argLine>something here</argLine>. IF it is there and it does not contain, @{argLine}, add that part. So for example, if the existing arline is, ` <argLine>@{surefireArgLine} -Xmx768m</argLine>` update it to ` <argLine>@{argLine} @{surefireArgLine} -Xmx768m</argLine>`. If the <argLine> tag is not there, no need to change anything. This change is required for jacoco to work properly with surefire.
-2.  run mvn clean test. This should create jacoco reports under the folder target/site/jacoco/. IF not please troubleshoot. 
-3.  Now we can finally start running the tool. 
-4.  run the preprocessor with the following command. Make sure you run under the correct folder (if it is a multi-module project it should be under the module, otherwise it should be the project root folder). Adjust the paths as needed.
+8.  Check if the surefire plugin is configured in the pom (<artifactId>maven-surefire-plugin</artifactId>). This can be also under the root pom.xml or the module pom.xml. Then, check if it has a line similar to <configuration><argLine>something here</argLine>. If it is there and it does not contain, @{argLine}, add that part. So for example, if the existing arline is, ` <argLine>@{surefireArgLine} -Xmx768m</argLine>` update it to ` <argLine>@{argLine} @{surefireArgLine} -Xmx768m</argLine>`. If the <argLine> tag is not there, no need to change anything. This change is required for jacoco to work properly with surefire.
+9.  run mvn clean test. This should create jacoco reports under the folder target/site/jacoco/. IF not please troubleshoot. 
+10.  run the preprocessor with the following command. Make sure you run under the correct folder (if it is a multi-module project it should be under the module, otherwise it should be the project root folder). Adjust the paths as needed.
 ```bash
 mvn io.github.sparkrew:preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess -DoutputFile=/add-project-path-here/package-map.json
 ```
-5.  run the api-finder by running the following command. Adjust the paths as needed.
+11.  run the api-finder by running the following command. Adjust the paths as needed.
 ```bash
  java -jar /path-to-project/fika/api-finder/target/api-finder-1.0-SNAPSHOT-jar-with-dependencies.jar process -m /path-to-previously-created/package-map.json -p package-name -j /path-to-project-jar -c /project-path/target/site/jacoco -s /path-to-project-source-code
 ```
@@ -79,14 +77,16 @@ Here,
 -c is for the jacoco report folder. This should be target/site/jacoco/ under the project folder.
 <br>
 -s is for the source code folder. This should be the main source code folder of the project. For example  /Users/username/Documents/pdfbox/pdfbox. Note that, we don't need to go to src/main/java. just passing the project root folder is enough. For a multi-module project such as the pdfbox in this example, the path should be the module folder (pdfbox/pdfbox in this case).
-1.  Once you run this, a successful attempt should create the following reports.
+
+Once you run this, a successful attempt should create the following reports.
 - coverage.json
 - third_party_apis_full_methods.json
-- 
+- all_third_party_call_pairs.json
+- package-map.json
 These reports should be under the current folder where you ran the api-finder command.
 
-6. run the test generation pipeline with the following commands.        
-Note: The genrated tests may use the mockito library. Please make sure to add mockito-core to the project, if it is not already added.
+12. run the test generation pipeline with the following commands.        
+Note: The genrated tests may use the mockito library. Please make sure to add mockito-core to the project, if it is not already added. Also, the generated tests may not follow the specific code formatting rules steup by the project. Therefore, you may need to disable them before running the pipeline.
 
 ```bash
 python -m venv .venv
@@ -95,15 +95,18 @@ source .venv/bin/activate
 python3 -m junit_agent.main /path/to/maven-project input.json --api deepseek --model deepseek-chat --log-file agent_graphhopper.log --api-key api-key --all
 ```
 
-All succefully generated tests for each project can be found in the following folked repositories.
-These repos also include all json reports created by the api-finder in the root folder of the corresponding module, and the output logs generated by the test generation pipeline inside the folder all_pipeline_logs.
+All successfully generated tests for each project are available in the following forked repositories.
 
-[flink]()     
-[pdfBox]()      
-[graphhopper]()
-[poi-tl]()        
-[mybatis]()       
-[tablesaw]()      
-[tika]()
-[checkstyle]()
+These forks include additional commits that introduce the required test plugins and dependencies when they were missing from the original repositories. Certain plugins enforcing custom rules such as checkstyle, spot bugs, license checks, were also disabled to allow the pipeline to run continuously. To enforce these cutom rules, some generated tests may require manual review and styling fixes.
+
+Each fork also contains all JSON reports produced by the api-finder, located in the root directory of the corresponding module, as well as the output logs generated by the test generation pipeline under the all_pipeline_logs directory.
+
+[flink](https://github.com/yogyagamage/flink/tree/fika)     
+[pdfBox](https://github.com/yogyagamage/pdfbox/tree/fika)      
+[graphhopper](https://github.com/yogyagamage/graphhopper/tree/fika)
+[poi-tl](https://github.com/yogyagamage/poi-tl/tree/fika)        
+[mybatis](https://github.com/yogyagamage/mybatis-3/tree/fika)       
+[tablesaw](https://github.com/yogyagamage/tablesaw/tree/fika)      
+[tika](https://github.com/yogyagamage/tika/tree/fika)
+[checkstyle](https://github.com/yogyagamage/checkstyle/tree/fika)
 
