@@ -158,7 +158,7 @@ Fika handles different method types:
 - Finds all static blocks in the class
 - Returns concatenated source of all static initializers
 
-**Why it's difficult**:
+**Notes**:
 - Bytecode method signatures use JVM descriptors (e.g., `(Ljava/lang/String;I)V`) 
 - Source code uses different type representations
 - Inner classes use `$` in bytecode but `.` in source
