@@ -1,6 +1,6 @@
 # Experiments
 
-We have executed Fika with 08 modules from 08 projects.
+We have analyzed 08 modules in 08 projects with Fika.
 
 | Project         | Module     | Commit Hash |
 | --------------- | ---------- | ----------- |

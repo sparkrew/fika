@@ -351,8 +351,9 @@ See the main [README](../README.md) for usage instructions.
 
 ## Limitations
 
-Below are known edge cases / minor bugs in Fika:
+Below are known edge cases / minor bugs in api-finder:
 
+- Limited to static analysis - Cannot analyze dynamically loaded classes, cannot handle reflection-based method calls or lambda expressions.
 - We consider **public methods inside private inner classes** as public entry points.
 - Spoon cannot always find sources (e.g., some anonymous/complex constructor patterns), which can lead to paths being skipped due to missing source extraction.
 - Coverage can be inaccurate for **nested static classes that extend a parent class**. 
