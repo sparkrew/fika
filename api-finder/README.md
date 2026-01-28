@@ -17,15 +17,15 @@ The problem API-finder tries to address is the difficulty of automatically ident
 
 The API-Finder follows this workflow:
 
-1. **Initialization**: Load the project JAR and build a comprehensive call graph
+1. **Initialization**: Load the project JAR and build a call graph
 2. **Entry Point Detection**: Identify all public methods as potential test entry points
 3. **Third-Party Discovery**: Find all third-party method calls in the codebase
 4. **Coverage Filtering**: Filter out already-covered third-party calls using JaCoCo reports
-5. **Path Finding**: Compute shortest paths from entry points to uncovered third-party methods
+5. **Path Finding**: Compute paths from entry points to uncovered third-party methods
 6. **Source Extraction**: Extract complete source code for all methods along each path
-7. **Context Gathering**: Collect constructors, field declarations, field-modifying methods, and imports
+7. **Context Gathering**: Collect constructors (and factory methods when needed), field declarations, field-modifying methods, and imports
 8. **Complexity Analysis**: Calculate condition counts and call counts for prioritization
-9. **Output Generation**: Write comprehensive JSON reports for test generation
+9. **Output Generation**: Write JSON reports for test generation
 
 ## How It Works
 
@@ -73,7 +73,7 @@ When a class calls the same third-party method multiple times, we need to know w
 
 1. **HTML Analysis** (`getTargetCallLines()`):
    - Parse the HTML to find all line numbers where the target method is invoked
-   - Handle special cases like constructors (`new ClassName()`) and static initializers
+  - Handle special cases like constructors (`new ClassName()`), child-to-parent constructor calls via `super(...)`, and static initializers (`<clinit>`)
    - Extract line numbers from the `<span id="L123">` elements
 
 2. **XML Analysis** (`getCoveredLinesForMethod()`):
@@ -84,6 +84,14 @@ When a class calls the same third-party method multiple times, we need to know w
 3. **Intersection Check** (`isPreciseMethodCovered()`):
    - Find the intersection between target call lines (from HTML) and covered lines in the method (from XML)
    - If any intersection exists, the specific call site is covered
+
+**Corner cases handled (pragmatic heuristics)**:
+- **Static initializers (`<clinit>`)**: treated specially since JaCoCo reporting patterns can differ; the filter falls back to a class-level HTML check for `<clinit>`.
+- **Child constructor reaching parent constructor (`<init>`)**:
+  - Detects when the caller class *extends* the target class (from HTML source).
+  - Treats an **explicit `super(...)`** call as the constructor call-site.
+  - Treats an **implicit `super()`** as covered by looking at the constructor declaration / class declaration (with `extends`) line when JaCoCo marks it covered.
+- **Overloads**: when the same third-party method name appears with multiple parameter lists in a class, we force the precise HTML+XML strategy since HTML cannot distinguish overloads.
 
 **Why it's difficult**: 
 - HTML reports show code and coverage but don't provide method-level granularity
@@ -104,42 +112,34 @@ Fika uses multiple levels of caching to avoid re-parsing reports:
 
 **Why**: Finding execution paths from public entry points to third-party methods in large codebases can be computationally expensive, and there may be thousands of paths to a single target. We need to find meaningful paths efficiently.
 
-**Implementation**: The path finding algorithm uses a **reverse call graph traversal** combined with forward path reconstruction:
+**Implementation (current)**: Path finding is anchored on the **direct call site** and uses a **reverse call graph BFS**.
 
-#### Step 1: Build Reverse Call Graph
+#### Step 1: Identify the call site (direct caller)
 
-Creates a map where each method points to all methods that call it. This enables efficient backward traversal from third-party methods to entry points.
+From the call graph, we record pairs `(directCaller → thirdPartyMethod)` for third-party calls that remain after coverage filtering.
 
-#### Step 2: Backward Traversal
+#### Step 2: Fast-path when the direct caller is already public
 
-- Start from the direct caller of the third-party method (not the third-party method itself, to preserve call site information)
-- Use BFS to traverse backward through the reverse call graph
-- Skip third-party methods in the path (we want only project methods in the chain)
-- Stop when reaching a public entry point
-- Return all entry points that can reach the target
+If `directCaller` is itself a public method (an entry point), we record the path as:
 
-#### Step 3: Shortest Path Finding
+`[directCaller, thirdPartyMethod]`
 
-For each entry point that can reach a target:
-- Use forward BFS from the entry point toward the third-party method
-- Only traverse through project methods (not other third-party methods)
-- Find one of the shortest "direct" path (only the final method in the path is third-party)
-- Return the path as a list of method signatures
+#### Step 3: Backward BFS to the first reachable public methods
+
+If `directCaller` is not public, we BFS *backwards* through the reverse call graph starting at `directCaller`:
+- Traverse only project methods (skip third-party methods while searching).
+- Stop expanding a branch as soon as a public method is reached (we record the first public method on that branch).
+- Reconstruct each recorded path by reversing the backward chain and appending `thirdPartyMethod` at the end.
+
+This keeps the search efficient and produces practical entry-point-to-call-site paths. We still use BFS, but we no longer enforce an explicit “shortest direct path” selection strategy beyond the natural behavior of BFS and the early-stop-at-first-public rule.
 
 **Why reverse traversal?** 
 - There are typically far fewer third-party method calls than public methods
-- Starting from targets and working backward is much more efficient
+- Starting from call sites and working backward is much more efficient
 - It naturally identifies only the paths that actually reach third-party code
 
-**Direct Path Constraint**: 
-Paths must be "direct" - only the final method is third-party. This prevents paths like `publicMethod → thirdPartyA → thirdPartyB → targetMethod`, which is out of scope for Fika.
-
-**Path Statistics**: 
-Fika also collects statistics about all possible paths (`countPathsAndStats`):
-- Total number of paths from entry point to target
-- Shortest path length
-- Longest path length
-These statistics help justify the decision to use the shortest path and can be written to `path-stats.json`.
+**Project-only traversal**:
+During backward traversal we skip third-party methods, so discovered paths are comprised of project methods up to the final third-party target.
 
 ### 5. Source Code Extraction with Spoon
 
@@ -202,7 +202,9 @@ This helps the LLM understand which specific call in the method should be exerci
 
 For test generation, Fika also extracts class context:
 
-**Constructors**: All constructors are extracted to help the test instantiate the class.
+**Constructors**: Constructors are extracted to help the test instantiate the class.
+
+**Factory methods (when constructors are private)**: If the class has private constructors, Fika also extracts **public static factory methods** that return an instance of the class. These are included alongside constructors to give the test generator a viable instantiation strategy.
 
 **Field Declarations**: All instance and static field declarations are extracted to provide context about the class's state that may need to be initialized or validated in tests.
 
@@ -278,6 +280,7 @@ The API-Finder generates a comprehensive JSON report (`third_party_apis_full_met
     {
       "entryPoint": "com.example.MyClass.publicMethod",
       "thirdPartyMethod": "org.library.ThirdParty.targetMethod",
+      "directCaller": "com.example.MyClass.helperMethod",
       "path": [
         "com.example.MyClass.publicMethod",
         "com.example.MyClass.helperMethod",
@@ -293,15 +296,21 @@ The API-Finder generates a comprehensive JSON report (`third_party_apis_full_met
       "imports": ["import org.library.ThirdParty;"],
       "testTemplate": "package com.example;\n\npublic class MyClass_helperMethod_ThirdParty_targetMethodFikaTest {\n    @Test\n    public void testPublicMethod() {\n        // TODO\n    }\n}",
       "conditionCount": 3,
-      "callCount": 1
+      "callCount": 1,
+      "covered": false
     }
   ]
 }
 ```
 
+Notes:
+- Method signatures in the real output include parameter types to distinguish overloads.
+- `directCaller` is the project method immediately before `thirdPartyMethod` in `path`.
+- `methodSources` contains project methods only (the third-party method body is intentionally omitted).
+
 Paths are sorted by:
-1. **Primary sort**: Condition count (ascending) - simpler paths first
-2. **Secondary sort**: Path length (ascending) - shorter paths first
+1. **Primary sort**: Path length (ascending) - shorter paths first 
+2. **Secondary sort**: Condition count (ascending) - simpler paths first
 
 This prioritization ensures that test generation focuses on the most tractable test cases first.
 
@@ -314,13 +323,13 @@ This prioritization ensures that test generation focuses on the most tractable t
 - Main goal of Fika is reachability analysis and public APIs are indicators of intended usage
 - Aligns with testing best practices
 
-### 2. Shortest Direct Paths
-**Decision**: For each (entry point, target) pair, only one of the shortest direct path is used.
+### 2. Call-site Anchored Reverse BFS
+**Decision**: Path finding starts from each third-party call site’s direct caller and uses reverse BFS to find reachable public entry points.
 
 **Rationale**:
-- Path explosion: One target may have thousands of paths from different entry points
-- Shorter paths are easier to test and understand
-- "Direct" means no intermediate third-party calls, ensuring the path is actually executable from project code
+- There are usually far fewer third-party call sites than public methods, so working backward is efficient.
+- Using the direct caller preserves call-site context (needed for coverage filtering and test generation).
+- BFS plus “stop at first public method per branch” yields practical paths without attempting to enumerate all possible paths.
 
 ### 3. Reverse Call Graph Traversal
 **Decision**: Path finding works backward from targets to entry points, then reconstructs paths forward.
@@ -376,11 +385,15 @@ For large projects, the most expensive operations are:
 
 ## Limitations
 
-- **Static Analysis**: Cannot handle reflection-based method calls or lambda expressions
-- **Source Code Required**: For best results, source code must be available
-- **JaCoCo Reports Required**: Coverage filtering requires JaCoCo HTML+XML reports
-- **Public Methods Only**: Private/protected methods are not considered as entry points
-- **Direct Paths Only**: Paths with intermediate third-party calls are excluded
+Below are known edge cases / minor bugs in Fika:
+
+- We consider **public methods inside private inner classes** as public entry points.
+- Spoon cannot always find sources (e.g., some anonymous/complex constructor patterns), which can lead to paths being skipped due to missing source extraction.
+- Coverage can be inaccurate for **nested static classes that extend a parent class**. 
+- If the same third-party method appears multiple times in the same caller method, the distinction is not made. All those instances are considered as one call site.
+- Coverage checking and source lookup do not recurse into **superclasses**. That means, if an implementation lives only in a parent class and not in the class under consideration itself, it may not be retrieved.
+- Calls to the `iterator` method are intentionally ignored.
+- For inner classes within an outer class that has a constructor that implicitly/explicitly calls `super(...)`, if the outer constructor line is covered, we may treat the inner class constructor’s `<init>`-related call site as covered as well.
 
 ## Future Improvements
 
