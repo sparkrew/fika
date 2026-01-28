@@ -6,13 +6,6 @@ The API-Finder is the core analysis component of Fika that identifies uncovered 
 
 The API-Finder takes a compiled JAR file, analyzes its bytecode to build a call graph, identifies all third-party method invocations, filters out already-covered methods using JaCoCo reports, finds execution paths from public methods to uncovered third-party calls, and extracts complete source code with contextual information for test generation.
 
-The problem API-finder tries to address is the difficulty of automatically identifying which third-party API calls are not adequately tested and determining the simplest execution paths to trigger those calls. This is particularly complex when dealing with:
-- Deep call chains spanning multiple methods
-- Method overloading requiring precise signature matching
-- Constructors and static initializers
-- Multiple paths to the same target method
-- Differences between Bytecode and Source code representations
-
 ## Architecture
 
 The API-Finder follows this workflow:
@@ -23,9 +16,8 @@ The API-Finder follows this workflow:
 4. **Coverage Filtering**: Filter out already-covered third-party calls using JaCoCo reports
 5. **Path Finding**: Compute paths from entry points to uncovered third-party methods
 6. **Source Extraction**: Extract complete source code for all methods along each path
-7. **Context Gathering**: Collect constructors (and factory methods when needed), field declarations, field-modifying methods, and imports
-8. **Complexity Analysis**: Calculate condition counts and call counts for prioritization
-9. **Output Generation**: Write JSON reports for test generation
+7. **Context Extraction**: Collect constructors (and factory methods when needed), field declarations, field-modifying methods, and imports
+8. **Output Generation**: Write JSON reports for test generation
 
 ## How It Works
 
@@ -93,20 +85,13 @@ When a class calls the same third-party method multiple times, we need to know w
   - Treats an **implicit `super()`** as covered by looking at the constructor declaration / class declaration (with `extends`) line when JaCoCo marks it covered.
 - **Overloads**: when the same third-party method name appears with multiple parameter lists in a class, we force the precise HTML+XML strategy since HTML cannot distinguish overloads.
 
-**Why it's difficult**: 
+**Notes**: 
 - HTML reports show code and coverage but don't provide method-level granularity
 - XML reports provide precise line-level coverage per method but don't show actual code
 - Method overloading requires matching full JVM descriptors (method name + parameter types)
 - Determining method boundaries in XML requires analyzing all method start lines in a class
 - Constructor calls look different in bytecode (`<init>`) than in source (`new ClassName()`)
 - Static initializers (`<clinit>`) need special handling
-
-**Caching Strategy**: 
-Fika uses multiple levels of caching to avoid re-parsing reports:
-- `coverageCache`: Caches coverage decisions per (file, method, target) tuple
-- `htmlLineCache`: Caches line numbers where targets are called per HTML file
-- `xmlCoverageCache`: Caches covered lines per method per XML file
-- `targetCallCountCache`: Tracks how many times each class calls each target method
 
 ### 4. Path Finding
 
@@ -222,7 +207,7 @@ For test generation, Fika also extracts class context:
 
 ### 6. Condition Count Calculation
 
-**Why**: Not all paths are equally easy to test. Paths with many conditional branches (if statements, loops, switches) require more complex test inputs and edge case handling.
+**Why**: Not all paths are equally easy to test. Paths with many conditional branches (if statements, loops, switches) require more complex test inputs and edge case handling. But this step is not that important for Fika.
 
 **Implementation**: The `RecordCounter` analyzes code complexity by counting control flow conditions:
 
@@ -239,27 +224,13 @@ Fika uses Spoon's AST to find all control flow elements in each method's body:
 
 **Caching**: Condition counts are cached per method signature to avoid re-parsing.
 
-**Why it matters**: 
 The condition count is used to **sort paths** by complexity. When multiple paths reach the same third-party method, Fika prioritizes simpler paths (fewer conditions) because:
 - They're easier for LLMs to generate tests for
 - Tests are more maintainable and readable
 - Less likely to require complex mocking or setup
 However, currently Fika generates tests for all identified paths, not just the simplest ones.
 
-### 7. Call Count Calculation
-
-**Why**: Some methods call the same third-party API multiple times. This value is collected only for analysis purposes. Fika does not add duplicate records for multiple calls to the same third-party API when they have the same path.
-
-**Implementation**: Uses Spoon to statically count invocations:
-
-Fika:
-1. Parses the caller method's source code
-2. Uses `InvocationCounter` visitor to traverse the AST
-3. Counts all invocations that match the target method name and class
-4. Handles both regular methods and constructors
-5. Returns a count
-
-### 8. Test Template Generation
+### 7. Test Template Generation
 
 The test template generation is intentionally kept simple. Its only purpose is to provide:
 - **Package name**: Where the test class should be located
@@ -377,11 +348,6 @@ See the main [README](../README.md) for usage instructions.
 - **Condition Caching**: Method condition counts are cached to avoid re-parsing
 - **Lazy Parsing**: XML reports are only parsed when precise coverage checks are needed
 
-For large projects, the most expensive operations are:
-1. Building the Spoon model (one-time cost per project)
-2. Building the call graph (one-time cost)
-3. Path finding (mitigated by reverse traversal)
-4. XML parsing for coverage (mitigated by caching and selective use)
 
 ## Limitations
 
