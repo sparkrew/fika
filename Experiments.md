@@ -57,7 +57,7 @@ Then, for each project, run the following steps:
 </plugin>
 ```
 8.  Check if the surefire plugin is configured in the pom (<artifactId>maven-surefire-plugin</artifactId>). This can be also under the root pom.xml or the module pom.xml. Then, check if it has a line similar to <configuration><argLine>something here</argLine>. If it is there and it does not contain, @{argLine}, add that part. So for example, if the existing arline is, ` <argLine>@{surefireArgLine} -Xmx768m</argLine>` update it to ` <argLine>@{argLine} @{surefireArgLine} -Xmx768m</argLine>`. If the <argLine> tag is not there, no need to change anything. This change is required for jacoco to work properly with surefire.
-9.  run mvn clean test. This should create jacoco reports under the folder target/site/jacoco/. IF not please troubleshoot. 
+9.  run mvn clean test. This should create jacoco reports under the folder target/site/jacoco/. 
 10.  run the preprocessor with the following command. Make sure you run under the correct folder (if it is a multi-module project it should be under the module, otherwise it should be the project root folder). Adjust the paths as needed.
 ```bash
 mvn io.github.sparkrew:preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess -DoutputFile=/add-project-path-here/package-map.json
@@ -72,7 +72,7 @@ Here,
 <br>
 -p is for the package name to be analyzed. For example, for pdfbox it can be "org.apache.pdfbox". You can find this by going to a class in the project and checking its package declaration. Package declaration is the line on top of a class such as "package org.apache.pdfbox"
 <br>
--j is for the project jar file. You can find this under the target/ folder of the project after a successful build. It should be something like projectname-version.jar. Sometimes, some projects have a jar that contains all the dependencies with the name -projectname-version-jar-with-dependencies.jar. You MUST always use the jar with dependencies. If a separate jar does not exist we can assume the existing jar is the one with dependencies. You can clarify this by checking the pom file as well. (a quick google search or chatgpt will let you know.)
+-j is for the project jar file. You can find this under the target/ folder of the project after a successful build. It should be something like projectname-version.jar. Sometimes, some projects have a jar that contains all the dependencies with the name -projectname-version-jar-with-dependencies.jar. You must always use the jar with dependencies. If a separate jar does not exist we can assume the existing jar is the one with dependencies. You can clarify this by checking the pom file as well.
 <br>
 -c is for the jacoco report folder. This should be target/site/jacoco/ under the project folder.
 <br>
