@@ -131,6 +131,8 @@ public class AllMethodCallAnalyzer {
 
             // Convert call pairs to a more readable format
             // Use full signatures with parameters to properly distinguish overloaded methods
+            // Use a Set to track unique pairs based on the formatted strings
+            Set<String> seenPairs = new HashSet<>();
             List<Map<String, String>> formattedPairs = callPairs.stream()
                     .map(entry -> {
                         Map<String, String> pair = new HashMap<>();
@@ -138,12 +140,16 @@ public class AllMethodCallAnalyzer {
                         pair.put("thirdPartyMethod", NameFilter.getFilteredMethodSignatureWithParams(entry.getValue()));
                         return pair;
                     })
+                    .filter(pair -> {
+                        // Create a unique key combining both caller and thirdPartyMethod
+                        String uniqueKey = pair.get("caller") + "|" + pair.get("thirdPartyMethod");
+                        return seenPairs.add(uniqueKey);
+                    })
                     .sorted(Comparator.comparing(p -> p.get("caller")))
                     .collect(Collectors.toList());
             String outputPath = reportPath.replace(".json", "_all_third_party_calls.json");
             File outputFile = new File(outputPath);
             Map<String, Object> output = new HashMap<>();
-            output.put("totalUniquePairs", callPairs.size());
             output.put("callPairs", formattedPairs);
             mapper.writerWithDefaultPrettyPrinter().writeValue(outputFile, output);
             log.info("Successfully wrote {} unique third-party call pairs to {}",
