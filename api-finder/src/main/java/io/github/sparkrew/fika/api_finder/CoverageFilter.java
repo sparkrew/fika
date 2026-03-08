@@ -92,7 +92,7 @@ public class CoverageFilter {
                 }
                 String htmlFilePath = htmlFile.getAbsolutePath();
                 // Use full signature with params for cache key to handle method overloading
-                String methodSignature = method.getName() + "(" + method.getParameterTypes().stream()
+                String methodSignature = method.getDeclClassType().getFullyQualifiedName() + "(" + method.getParameterTypes().stream()
                         .map(Type::toString)
                         .collect(Collectors.joining(", ")) + ")";
                 String cacheKey = htmlFilePath + "|" + methodSignature + "|" + thirdPartyMethod;
