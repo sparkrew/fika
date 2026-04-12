@@ -146,6 +146,10 @@ public class MethodExtractor {
         // the same class has multiple calls to the same third party method.
         Set<Map.Entry<MethodSignature, MethodSignature>> allThirdPartyPairs = new HashSet<>();
         for (MethodSignature method : cg.getMethodSignatures()) {
+            // Skip if the caller itself is a third-party method
+            if (isThirdPartyMethod(method, packageMapPath)) {
+                continue;
+            }
             String fullClassName = method.getDeclClassType().getFullyQualifiedName();
             for (CallGraph.Call call : cg.callsFrom(method)) {
                 MethodSignature target = call.getTargetMethodSignature();
@@ -170,6 +174,10 @@ public class MethodExtractor {
         Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs = new HashSet<>();
         Set<Map.Entry<MethodSignature, MethodSignature>> skippedDueToCov = new HashSet<>();
         for (MethodSignature method : cg.getMethodSignatures()) {
+            // Skip if the caller itself is a third-party method
+            if (isThirdPartyMethod(method, packageMapPath)) {
+                continue;
+            }
             for (CallGraph.Call call : cg.callsFrom(method)) {
                 MethodSignature target = call.getTargetMethodSignature();
                 if (isThirdPartyMethod(target, packageMapPath)) {
