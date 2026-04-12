@@ -1,10 +1,10 @@
 # Fika
 
-Fika is a tool that performs static and dynamic reachability analysis of third-party methods within a project. It identifies uncovered third-party API calls in Java projects and generates the information required to create tests for them with the help of LLMs.
+Fika is a tool that performs static and dynamic reachability analysis of third-party methods within a project. It identifies uncovered third-party call sites in Java projects and generates the information required to create reachability scenarios for them with the help of LLMs.
 
 ## How it works
 
-**Components**: Fika consists of a preprocessor, an api-finder, and a test-generator.
+**Components**: Fika consists of a preprocessor, an api-finder, and a reachability scenario generator.
 
 - **Preprocessor** is a Maven plugin that creates a mapping of dependencies and package names at project build time. 
     This lets us identify all the package names of the dependencies used in the project. Currently, the format of the
@@ -20,8 +20,8 @@ Fika is a tool that performs static and dynamic reachability analysis of third-p
   way to determine the correct dependency is through dynamic analysis. At this stage, we just record all the dependency 
   names without trying to figure out which classes are actually loaded by the classloader. For Fika, the actual dependency ID is not of importance.
 
-- **API-finder** scans the source code of the project to identify all the third-party API calls. The output is a 
-  JSON list of all the third-party API calls found in the source code in the following format. More details about the API-finder can be found [here](api-finder/README.md).
+- **API-finder** scans the source code of the project to identify all the third-party call sites. The output is a 
+  JSON list of all the third-party call sites found in the source code in the following format. More details about the API-finder can be found [here](api-finder/README.md).
 
 ```json
 [
@@ -43,7 +43,7 @@ Fika is a tool that performs static and dynamic reachability analysis of third-p
 ]
 ```
 
- - **Test-generator** takes the list of uncovered third-party API calls and creates a prompt. When passing code blocks to the prompt, the test generator converts newline or tab characters (\n, \t) accordingly. It then passes this prompt to an LLM to generate tests that cover these API calls. The test generator also integrates and executes the generated tests against the project. If the tests cannot be executed successfully or fail to reach the target, it retries until either successful tests are generated or the maximum number of retries is reached. More details about the test generator can be found [here](https://github.com/meriembenchaaben/testGeneration/blob/main/README.md).
+ - **Reachability scenario generator** takes the list of uncovered third-party call sites and creates a prompt. When passing code blocks to the prompt, the reachability scenario generator converts newline or tab characters (\n, \t) accordingly. It then passes this prompt to an LLM to generate reachability scenarios that cover these call sites. The test generator also integrates and executes the generated tests against the project. If the reachability scenarios cannot be executed successfully or fail to reach the target, it retries until either successful tests are generated or the maximum number of retries is reached. More details about the test generator can be found [here](https://github.com/meriembenchaaben/testGeneration/blob/main/README.md).
 
 ## Usage
 
@@ -74,4 +74,5 @@ If any package name should be ignored (if there are submodules which should not 
 
 - **Illustrative example**: See [Example.md](Example.md) for a sample test-case generation run with Fika.
 - **Additional experiments**: See [Experiments.md](Experiments.md) for records from more runs.
+- **Experiments with Semgrep**: See [SemgrepExperiments.md](SemgrepExperiments.md) for example usage of Fika for vulnerability reachability analysis.
 

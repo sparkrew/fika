@@ -1,23 +1,26 @@
 # API-Finder
 
-The API-Finder is the core analysis component of Fika that identifies uncovered third-party API calls and generates detailed information about how to reach them from public entry points. It performs static analysis using call graph construction, coverage analysis, and source code extraction to provide comprehensive data for test generation.
+The API-Finder is the core analysis component of Fika that identifies uncovered third-party library methods and generates detailed information about how to reach them from public entry points. It performs static analysis using call graph construction, coverage analysis, and source code extraction to provide comprehensive data for reachability scenario generation.
+
+> A reachability scenario is a piece of code that calls a third-party library method and sets up the program so that a specific path in the code is executed, eventually reaching and running that library method.
+To run a reachability scenario on its own, we place it inside a unit testing framework and execute it there. We then use test coverage tools to check that the code path actually runs. It looks similar to a unit test, but the goal is different: instead of checking results, it simply shows that a certain dependency call can be executed. Because of this, a reachability scenario does not include any assertions.
 
 ## Overview
 
-The API-Finder takes a compiled JAR file, analyzes its bytecode to build a call graph, identifies all third-party method invocations, filters out already-covered methods using JaCoCo reports, finds execution paths from public methods to uncovered third-party calls, and extracts complete source code with contextual information for test generation.
+The API-Finder takes a compiled JAR file, analyzes its bytecode to build a call graph, identifies all third-party method invocations, filters out already-covered methods using JaCoCo reports, finds execution paths from public methods to uncovered third-party calls, and extracts complete source code with contextual information for reachability scenario generation.
 
 ## Architecture
 
 The API-Finder follows this workflow:
 
 1. **Initialization**: Load the project JAR and build a call graph
-2. **Entry Point Detection**: Identify all public methods as potential test entry points
+2. **Entry Point Detection**: Identify all public methods as potential reachability scenario entry points
 3. **Third-Party Discovery**: Find all third-party method calls in the codebase
 4. **Coverage Filtering**: Filter out already-covered third-party calls using JaCoCo reports
 5. **Path Finding**: Compute paths from entry points to uncovered third-party methods
 6. **Source Extraction**: Extract complete source code for all methods along each path
 7. **Context Extraction**: Collect constructors (and factory methods when needed), field declarations, field-modifying methods, and imports
-8. **Output Generation**: Write JSON reports for test generation
+8. **Output Generation**: Write JSON reports for reachability scenario generation
 
 ## How It Works
 
@@ -39,7 +42,7 @@ The implementation is in `MethodExtractor.findAllThirdPartyMethodPairs()`:
 
 ### 2. Entry Point Detection
 
-**Why**: Identifying which methods should be considered as potential test entry points affects the required complexity from the generated tests.
+**Why**: Identifying which methods should be considered as potential reachability scenario entry points affects the required complexity from the generated reachability scenarios.
 
 **Implementation**: Fika identifies all **public methods** in the project's package as entry points (`MethodExtractor.detectEntryPoints()`).
 
@@ -128,7 +131,7 @@ During backward traversal we skip third-party methods, so discovered paths are c
 
 ### 5. Source Code Extraction with Spoon
 
-**Why**: Extracting actual Java source code (not bytecode or Jimple IR) with proper handling of generics, annotations, inner classes, and adding contextual markers to guide test generation.
+**Why**: Extracting actual Java source code (not bytecode or Jimple IR) with proper handling of generics, annotations, inner classes, and adding contextual markers to guide reachability scenario generation.
 
 **Implementation**: Fika uses **Spoon**, a library for Java source code analysis and transformation:
 
@@ -177,7 +180,7 @@ For each method in a path, Fika:
    // PATH: Test should invoke the next ClassName.methodName(...) [step in execution path]
    ```
 
-This helps the LLM understand which specific call in the method should be exercised by the test.
+This helps the LLM understand which specific call in the method should be exercised by the reachability scenario.
 
 **Handling edge cases**:
 - If Spoon's comment API fails (due to AST modification restrictions), falls back to string manipulation
@@ -185,13 +188,13 @@ This helps the LLM understand which specific call in the method should be exerci
 
 #### Class Members Extraction
 
-For test generation, Fika also extracts class context:
+For reachability scenario generation, Fika also extracts class context:
 
-**Constructors**: Constructors are extracted to help the test instantiate the class.
+**Constructors**: Constructors are extracted to help the reachability scenario instantiate the class.
 
-**Factory methods (when constructors are private)**: If the class has private constructors, Fika also extracts **public static factory methods** that return an instance of the class. These are included alongside constructors to give the test generator a viable instantiation strategy.
+**Factory methods (when constructors are private)**: If the class has private constructors, Fika also extracts **public static factory methods** that return an instance of the class. These are included alongside constructors to give the reachability scenario generator a viable instantiation strategy.
 
-**Field Declarations**: All instance and static field declarations are extracted to provide context about the class's state that may need to be initialized or validated in tests.
+**Field Declarations**: All instance and static field declarations are extracted to provide context about the class's state that may need to be initialized or validated in reachability scenarios.
 
 **Field-Modifying Methods**: Methods that modify the class's fields, including:
 - Methods with direct field assignments (`this.field = value` or `field = value`)
@@ -225,21 +228,21 @@ Fika uses Spoon's AST to find all control flow elements in each method's body:
 **Caching**: Condition counts are cached per method signature to avoid re-parsing.
 
 The condition count is used to **sort paths** by complexity. When multiple paths reach the same third-party method, Fika prioritizes simpler paths (fewer conditions) because:
-- They're easier for LLMs to generate tests for
+- They're easier for LLMs to generate reachability scenarios for
 - Tests are more maintainable and readable
 - Less likely to require complex mocking or setup
-However, currently Fika generates tests for all identified paths, not just the simplest ones.
+However, currently Fika generates reachability scenarios for all identified paths, not just the simplest ones.
 
 ### 7. Test Template Generation
 
-The test template generation is intentionally kept simple. Its only purpose is to provide:
-- **Package name**: Where the test class should be located
+The reachability scenario template generation is intentionally kept simple. Its only purpose is to provide:
+- **Package name**: Where the reachability scenario class should be located
 - **Test class name**: Generated from the path (e.g., `EntryClass_CallerMethod_TargetClass_TargetMethodFikaTest`)
 - **Test method name**: Derived from the entry point method name
 
 The template (`Template.java`) contains basic JUnit boilerplate with placeholders:
 
-These placeholders are replaced by actual values. The template is not critical for test generation - modern LLMs can easily generate test structure. It's mainly useful for maintaining consistent naming conventions.
+These placeholders are replaced by actual values. The template is not critical for reachability scenario generation - modern LLMs can easily generate reachability scenario structure. It's mainly useful for maintaining consistent naming conventions.
 
 ## Output Format
 
@@ -283,15 +286,15 @@ Paths are sorted by:
 1. **Primary sort**: Path length (ascending) - shorter paths first 
 2. **Secondary sort**: Condition count (ascending) - simpler paths first
 
-This prioritization ensures that test generation focuses on the most tractable test cases first.
+This prioritization ensures that reachability scenario generation focuses on the most tractable cases first.
 
 ## Key Design Decisions
 
 ### 1. Public Methods Only as Entry Points
-**Decision**: Only public methods are used as test entry points.
+**Decision**: Only public methods are used as reachability scenario entry points.
 
 **Rationale**: 
-- Main goal of Fika is reachability analysis and public APIs are indicators of intended usage
+- Main goal of Fika is reachability analysis and public methods are indicators of intended usage
 - Aligns with testing best practices
 
 ### 2. Call-site Anchored Reverse BFS
@@ -299,7 +302,7 @@ This prioritization ensures that test generation focuses on the most tractable t
 
 **Rationale**:
 - There are usually far fewer third-party call sites than public methods, so working backward is efficient.
-- Using the direct caller preserves call-site context (needed for coverage filtering and test generation).
+- Using the direct caller preserves call-site context (needed for coverage filtering and reachability scenario generation).
 - BFS plus “stop at first public method per branch” yields practical paths without attempting to enumerate all possible paths.
 
 ### 3. Reverse Call Graph Traversal
@@ -364,5 +367,5 @@ Below are known edge cases / minor bugs in api-finder:
 
 ## Future Improvements
 
-- Integration with other coverage tools beyond JaCoCo (When Fika considers the quality of test oracles)
+- Integration with other coverage tools beyond JaCoCo
 - Incremental analysis (only analyze changed code)
