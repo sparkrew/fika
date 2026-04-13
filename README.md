@@ -72,7 +72,7 @@ If any package name should be ignored (if there are submodules which should not 
 
 ## Examples
 
-- **Illustrative example**: See [Example.md](Example.md) for a sample test-case generation run with Fika.
+- **Illustrative example**: See [Example.md](Example.md) for a sample reachability scenario generation run with Fika.
 - **Additional experiments**: See [Experiments.md](Experiments.md) for records from more runs.
 - **Experiments with Semgrep**: See [SemgrepExperiments.md](SemgrepExperiments.md) for example usage of Fika for vulnerability reachability analysis.
 
