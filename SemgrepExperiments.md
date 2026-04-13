@@ -1,6 +1,6 @@
 # Experiments with Semgrep
 
-We evaluated Fika's ability to verify vulnerability reachability by analyzing 13 modules across 6 projects using Semgrep for vulnerability detection and Fika for executability analysis.
+We have evaluated Fika's ability to verify vulnerability reachability by analyzing 13 modules across 6 projects using Semgrep for vulnerability detection and Fika for executability analysis.
 
 ## Case Studies
 
@@ -37,9 +37,6 @@ The following modules are the ones for which Semgrep reported at least one reach
 
 ## Methodology
 
-### Overview
-This evaluation demonstrates Fika's practical application in vulnerability reachability analysis. We use Semgrep as a baseline static application security testing (SAST) tool to identify potentially reachable vulnerabilities in dependencies, and then apply Fika to verify which vulnerable methods are actually executable.
-
 ### Setup Requirements
 - Java 17 or higher
 - Maven 3.9.11
@@ -73,7 +70,6 @@ jq . semgrep.json > semgrep_formatted.json
 python rq-scripts/stats/semgrep.py
 ```
 - This identifies third-party methods referenced in each Semgrep rule
-- Patterns are extracted from Semgrep CVE reachability rules to determine vulnerable method signatures
 
 **5. Generate Reachability Scenarios with Fika**
 - Follow the standard Fika pipeline from [Experiments.md](Experiments.md) to generate:
@@ -92,8 +88,8 @@ python rq-scripts/stats/semgrep.py
 
 ## Results
 
-The forked repositories with all analysis outputs are available at:
-- [flink](https://github.com/yogyagamage/flink/tree/semgrep-uc) (semgrep-uc branch)
+The forked repositories with all analysis outputs are available at (semgrep-uc branch):
+- [flink](https://github.com/yogyagamage/flink/tree/semgrep-uc)
 - [graphhopper](https://github.com/yogyagamage/graphhopper/tree/semgrep-uc)
 - [jooby](https://github.com/yogyagamage/jooby/tree/semgrep-uc)
 - [poi-tl](https://github.com/yogyagamage/poi-tl/tree/semgrep-uc)
@@ -105,16 +101,10 @@ Each fork includes:
 - **Third-party call-site paths**: `semgrep-uc/module/third_party_apis_full_methods.json`
 
 ### Semgrep Outputs
+- **CLI outputs**: `rq-scripts/semgrep-data.pdf`
+- **Reachable or undetermined CVEs**: `detailed-cve.pdf`
 Each fork includes:
 - **Semgrep rules**: `semgrep-uc/module/rules/`
   - `reachable/` - rules that Semgrep marks as reachable or undetermined
   - `non-reachable/` - rules that Semgrep marks as unreachable
-- **CLI outputs**: `rq-scripts/semgrep-data.pdf`
-- **Reachable or undetermined CVEs**: `detailed-cve.pdf`
 
-### Key Findings
-This evaluation demonstrates how Fika can complement traditional SAST tools like Semgrep by:
-- Confirming which reported vulnerabilities are actually present in the codebase
-- Verifying the executability of vulnerable methods
-- Reducing false positives in vulnerability reachability analysis
-- Providing concrete evidence of vulnerability reachability through generated reachability scenarios
