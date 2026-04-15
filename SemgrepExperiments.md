@@ -66,7 +66,7 @@ jq . semgrep.json > semgrep_formatted.json
 **4. Download and Extract Vulnerability Patterns**
 - Run the rule extraction script to identify vulnerable methods:
 ```bash
-python rq-scripts/stats/semgrep.py
+python rq-data/semgrep.py
 ```
 - This identifies third-party methods referenced in each Semgrep rule
 
@@ -102,8 +102,8 @@ Each fork includes:
 ### Semgrep Outputs
 
 This repo (Fika) includes:
-- **CLI outputs**: `rq-data/semgrep-data.pdf` (The logs produced by Semgrep CLI for all 13 modules)
-- **Reachable or undetermined CVEs**: `rq-data/detailed-cve.pdf` (A detailed list of CVEs reported by Semgrep for each module which are either reachable or undetermined.)
+- **CLI outputs**: [rq-data/semgrep-data.pdf](rq-data/semgrep-data.pdf) (The logs produced by Semgrep CLI for all 13 modules)
+- **Reachable or undetermined CVEs**: [rq-data/detailed-cve.pdf](rq-data/detailed-cve.pdf) (A detailed list of CVEs reported by Semgrep for each module which are either reachable or undetermined.)
   
 Each fork includes:
 - **Semgrep rules**: `semgrep-uc/module/rules/`
