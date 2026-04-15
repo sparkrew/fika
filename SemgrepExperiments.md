@@ -31,9 +31,8 @@ The following modules are the ones for which Semgrep reported at least one reach
 | [jooby](https://github.com/jooby-project/jooby)  | jooby-netty, jooby-jetty, jooby-http2-netty, jooby-http2-jetty, jooby-utow | 7dc5b6d |
 | [poi-tl](https://github.com/Sayi/poi-tl)      | poi-tl | 58fdb6c |
 
-- These 13 module versions are the ones we use for the Semgrep-to-Fika comparison.
 - For each module, we extract the vulnerable method pattern from Semgrep's rule when available.
-- If a rule has no explicit pattern, we treat it as a dependency-level signal and check the vulnerable dependency's methods instead.
+- If a rule has no explicit pattern, we check for any method coming from the vulnerable dependency instead.
 
 ## Methodology
 
@@ -88,7 +87,7 @@ python rq-scripts/stats/semgrep.py
 
 ## Results
 
-The forked repositories with all analysis outputs are available at (semgrep-uc branch):
+The forked repositories with all analysis outputs are available at:
 - [flink](https://github.com/yogyagamage/flink/tree/semgrep-uc)
 - [graphhopper](https://github.com/yogyagamage/graphhopper/tree/semgrep-uc)
 - [jooby](https://github.com/yogyagamage/jooby/tree/semgrep-uc)
@@ -101,8 +100,11 @@ Each fork includes:
 - **Third-party call-site paths**: `semgrep-uc/module/third_party_apis_full_methods.json`
 
 ### Semgrep Outputs
-- **CLI outputs**: `rq-scripts/semgrep-data.pdf`
-- **Reachable or undetermined CVEs**: `detailed-cve.pdf`
+
+This repo (Fika) includes:
+- **CLI outputs**: `rq-data/semgrep-data.pdf` (The logs produced by Semgrep CLI for all 13 modules)
+- **Reachable or undetermined CVEs**: `rq-data/detailed-cve.pdf` (A detailed list of CVEs reported by Semgrep for each module which are either reachable or undetermined.)
+  
 Each fork includes:
 - **Semgrep rules**: `semgrep-uc/module/rules/`
   - `reachable/` - rules that Semgrep marks as reachable or undetermined
