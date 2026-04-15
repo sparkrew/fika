@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Parse semgrep.json, fetch rule details from Semgrep SCA advisory API,
-and save each rule as a JSON file organized by reachability status.
-
-Usage:
-    SEMGREP_TOKEN=your_token python3 parse_semgrep.py
-    python3 parse_semgrep.py --input semgrep.json --token your_token
-"""
-
 import json
 import os
 import re
