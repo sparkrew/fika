@@ -6,13 +6,21 @@ import picocli.CommandLine;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class Main {
 
     static final Logger log = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new CLIEntryPoint()).execute(args);
+        long startTime = System.nanoTime();
+        int exitCode = 1;
+        try {
+            exitCode = new CommandLine(new CLIEntryPoint()).execute(args);
+        } finally {
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
+            log.info("CLI execution completed in {} ms", elapsedMillis);
+        }
         System.exit(exitCode);
     }
 
