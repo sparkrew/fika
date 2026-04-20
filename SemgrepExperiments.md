@@ -1,7 +1,5 @@
 # Experiments with Semgrep
 
-We have evaluated Fika's ability to verify vulnerability reachability by analyzing 13 modules across 6 projects using Semgrep for vulnerability detection and Fika for executability analysis.
-
 ## Case Studies
 
 We analyze the same eight projects used in [Experiments.md](Experiments.md).
