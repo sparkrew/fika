@@ -77,6 +77,7 @@ public class MethodExtractor {
             // Build reverse call graph for efficient backward traversal. Otherwise, it takes painfully long time to
             // run with the forward graph (from public methods to third party methods).
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph = buildReverseCallGraph(cg);
+            log.info("Using random path selection with seed: {}", RANDOM_SEED);
             // For each third-party call site, find the public method that leads to it
             for (Map.Entry<MethodSignature, MethodSignature> pair : thirdPartyPairs) {
                 MethodSignature directCaller = pair.getKey();
@@ -213,51 +214,58 @@ public class MethodExtractor {
         return reverseGraph;
     }
 
+    private static final long RANDOM_SEED = 42;
+    private static final Random RANDOM = new Random(RANDOM_SEED);
+
     /**
-     * Find all shortest paths from the direct caller to public methods (entry points)
-     * by traversing backwards through the call graph using BFS.
-     * Returns the complete paths (in reverse order: from directCaller to publicMethod).
-     * Stops at the first public method found in each path (no intermediate public methods).
+     * Find a single random path from the direct caller to a public method (entry point)
+     * by traversing backwards through the call graph using randomized DFS.
+     * Returns the path in reverse order: from directCaller to publicMethod.
+     * Stops at the first public method found (no intermediate public methods).
      */
     private static List<List<MethodSignature>> findPathsToFirstPublicCallers(
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph,
             MethodSignature directCaller,
             Set<MethodSignature> entryPoints,
             Path packageMapPath) {
-        List<List<MethodSignature>> completePaths = new ArrayList<>();
-        Set<MethodSignature> visited = new HashSet<>();
-        Deque<List<MethodSignature>> queue = new ArrayDeque<>();
-        // Start with the direct caller as the initial path
-        queue.add(List.of(directCaller));
-        visited.add(directCaller);
-        while (!queue.isEmpty()) {
-            List<MethodSignature> currentPath = queue.poll();
-            MethodSignature current = currentPath.get(currentPath.size() - 1);
-            // Get all methods that call the current method
-            Set<MethodSignature> callers = reverseCallGraph.getOrDefault(current, Collections.emptySet());
-            for (MethodSignature caller : callers) {
-                if (visited.contains(caller)) {
-                    continue;
-                }
-                // Skip third-party methods (we only want project methods in the path)
-                if (isThirdPartyMethod(caller, packageMapPath)) {
-                    continue;
-                }
-                visited.add(caller);
-                // Build the new path by appending this caller
-                List<MethodSignature> newPath = new ArrayList<>(currentPath);
-                newPath.add(caller);
-                // If this is a public method (entry point), we found a complete path
-                // and stop traversing backward from it (we want first public method only)
-                if (entryPoints.contains(caller)) {
-                    completePaths.add(newPath);
-                } else {
-                    // Only continue BFS if it's not a public method
-                    queue.add(newPath);
-                }
+        List<MethodSignature> result = randomDFS(reverseCallGraph, directCaller, entryPoints,
+                packageMapPath, new HashSet<>(), new ArrayList<>(List.of(directCaller)));
+        if (result == null) {
+            return Collections.emptyList();
+        }
+        return List.of(result);
+    }
+
+    private static List<MethodSignature> randomDFS(
+            Map<MethodSignature, Set<MethodSignature>> reverseCallGraph,
+            MethodSignature current,
+            Set<MethodSignature> entryPoints,
+            Path packageMapPath,
+            Set<MethodSignature> visited,
+            List<MethodSignature> currentPath) {
+        visited.add(current);
+        List<MethodSignature> callers = new ArrayList<>(
+                reverseCallGraph.getOrDefault(current, Collections.emptySet()));
+        Collections.shuffle(callers, RANDOM);
+        for (MethodSignature caller : callers) {
+            if (visited.contains(caller)) {
+                continue;
+            }
+            if (isThirdPartyMethod(caller, packageMapPath)) {
+                continue;
+            }
+            List<MethodSignature> newPath = new ArrayList<>(currentPath);
+            newPath.add(caller);
+            if (entryPoints.contains(caller)) {
+                return newPath;
+            }
+            List<MethodSignature> result = randomDFS(reverseCallGraph, caller, entryPoints,
+                    packageMapPath, visited, newPath);
+            if (result != null) {
+                return result;
             }
         }
-        return completePaths;
+        return null;
     }
 
     // Detect entry points - all public methods
