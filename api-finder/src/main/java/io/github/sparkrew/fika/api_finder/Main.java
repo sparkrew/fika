@@ -94,10 +94,18 @@ public class Main {
         )
         boolean enableAnalysisLogs;
 
+        @CommandLine.Option(
+                names = {"--coverage-json"},
+                paramLabel = "COVERAGE-JSON",
+                description = "Path to a coverage.json file from a previous run. When provided, only uncovered " +
+                        "call pairs from this file are considered, skipping the JaCoCo coverage analysis."
+        )
+        Path coverageJsonPath;
+
         @Override
         public void run() {
             MethodExtractor.process(jarPath, reportFile, packageName, packageMapPath, sourceCodePath,
-                    jacocoFiles.stream().map(Path::toFile).toList(), enableAnalysisLogs);
+                    jacocoFiles.stream().map(Path::toFile).toList(), enableAnalysisLogs, coverageJsonPath);
         }
     }
 }

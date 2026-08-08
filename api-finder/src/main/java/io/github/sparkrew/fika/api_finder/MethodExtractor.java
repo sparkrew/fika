@@ -1,7 +1,10 @@
 package io.github.sparkrew.fika.api_finder;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sparkrew.fika.api_finder.model.AnalysisResult;
 import io.github.sparkrew.fika.api_finder.model.ThirdPartyPath;
+import io.github.sparkrew.fika.api_finder.utils.NameFilter;
 import io.github.sparkrew.fika.api_finder.utils.PackageMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +39,8 @@ public class MethodExtractor {
      * @param jacocoHtmlDirs List of JaCoCo HTML report directories to filter already covered methods (optional, can be empty).
      */
     public static void process(String pathToJar, String reportPath, String packageName, Path packageMapPath,
-                               String sourceRootPath, List<File> jacocoHtmlDirs, boolean enableAnalysisLogs) {
+                               String sourceRootPath, List<File> jacocoHtmlDirs, boolean enableAnalysisLogs,
+                               Path coverageJsonPath) {
         // Start reading the jar with sootup. Here we use all the public methods as the entry points.
         // That means we don't plan to do anything (generate tests etc) for private methods.
         // Don't want any more complications with reflections and all.
@@ -49,7 +53,7 @@ public class MethodExtractor {
         Set<MethodSignature> entryPoints = detectEntryPoints(view, packageName);
         log.info("Found " + entryPoints.size() + " public methods as entry points.");
         AnalysisResult result = analyzeReachability(view, entryPoints, packageMapPath, jacocoHtmlDirs, sourceRootPath,
-                enableAnalysisLogs);
+                enableAnalysisLogs, coverageJsonPath);
         // Write the main output file.
         PathWriter.writeAllFormats(result, reportPath, sourceRootPath, enableAnalysisLogs);
         log.info("All analysis reports written successfully.");
@@ -62,7 +66,8 @@ public class MethodExtractor {
 
     private static AnalysisResult analyzeReachability(JavaView view, Set<MethodSignature> entryPoints,
                                                       Path packageMapPath, List<File> jacocoHtmlDirs,
-                                                      String sourceRootPath, boolean enableAnalysisLogs) {
+                                                      String sourceRootPath, boolean enableAnalysisLogs,
+                                                      Path coverageJsonPath) {
         List<ThirdPartyPath> thirdPartyPaths = new ArrayList<>();
         try {
             CallGraphAlgorithm cha = new ClassHierarchyAnalysisAlgorithm(view);
@@ -72,7 +77,8 @@ public class MethodExtractor {
             // efficient than doing it the other way round, as there are usually much fewer third-party methods than
             // public methods.
             Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs =
-                    findAllThirdPartyMethodPairs(cg, packageMapPath, jacocoHtmlDirs, enableAnalysisLogs);
+                    findAllThirdPartyMethodPairs(cg, packageMapPath, jacocoHtmlDirs, enableAnalysisLogs,
+                            coverageJsonPath);
             log.info("Found {} third-party method call pairs in call graph", thirdPartyPairs.size());
             // Build reverse call graph for efficient backward traversal. Otherwise, it takes painfully long time to
             // run with the forward graph (from public methods to third party methods).
@@ -142,7 +148,11 @@ public class MethodExtractor {
      * Find all third-party method call pairs (caller -> third-party method) in the call graph
      */
     private static Set<Map.Entry<MethodSignature, MethodSignature>> findAllThirdPartyMethodPairs(
-            CallGraph cg, Path packageMapPath, List<File> jacocoHtmlDirs, boolean enableAnalysisLogs) {
+            CallGraph cg, Path packageMapPath, List<File> jacocoHtmlDirs, boolean enableAnalysisLogs,
+            Path coverageJsonPath) {
+        if (coverageJsonPath != null) {
+            return findThirdPartyMethodPairsFromCoverageJson(cg, packageMapPath, coverageJsonPath);
+        }
         // We do two iterations because we get coverage check in two steps. First, we register all to check if
         // the same class has multiple calls to the same third party method.
         Set<Map.Entry<MethodSignature, MethodSignature>> allThirdPartyPairs = new HashSet<>();
@@ -197,6 +207,68 @@ public class MethodExtractor {
         log.info("Unique third-party method call pairs after coverage filtering: {}", thirdPartyPairs.size());
         log.info("Skipped {} third-party method call pairs due to coverage", skippedDueToCov.size());
         return thirdPartyPairs;
+    }
+
+    private static Set<Map.Entry<MethodSignature, MethodSignature>> findThirdPartyMethodPairsFromCoverageJson(
+            CallGraph cg, Path packageMapPath, Path coverageJsonPath) {
+        Set<String> uncoveredPairKeys = loadUncoveredPairsFromCoverageJson(coverageJsonPath);
+        log.info("Loaded {} uncovered call pairs from {}", uncoveredPairKeys.size(), coverageJsonPath);
+        Set<Map.Entry<MethodSignature, MethodSignature>> thirdPartyPairs = new HashSet<>();
+        for (MethodSignature method : cg.getMethodSignatures()) {
+            if (isThirdPartyMethod(method, packageMapPath)) {
+                continue;
+            }
+            for (CallGraph.Call call : cg.callsFrom(method)) {
+                MethodSignature target = call.getTargetMethodSignature();
+                if (isThirdPartyMethod(target, packageMapPath)) {
+                    String callerKey = toCoverageJsonCallerKey(method);
+                    String targetKey = toCoverageJsonTargetKey(target);
+                    String pairKey = callerKey + "->" + targetKey;
+                    if (uncoveredPairKeys.contains(pairKey)) {
+                        thirdPartyPairs.add(Map.entry(method, target));
+                    }
+                }
+            }
+        }
+        log.info("Matched {} third-party method call pairs from coverage.json", thirdPartyPairs.size());
+        return thirdPartyPairs;
+    }
+
+    private static Set<String> loadUncoveredPairsFromCoverageJson(Path coverageJsonPath) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, Object>> entries = mapper.readValue(
+                    coverageJsonPath.toFile(), new TypeReference<>() {});
+            Set<String> uncoveredPairs = new HashSet<>();
+            for (Map<String, Object> entry : entries) {
+                boolean covered = Boolean.TRUE.equals(entry.get("covered"));
+                if (!covered) {
+                    String caller = (String) entry.get("caller");
+                    String thirdPartyMethod = (String) entry.get("thirdPartyMethod");
+                    uncoveredPairs.add(caller + "->" + thirdPartyMethod);
+                }
+            }
+            return uncoveredPairs;
+        } catch (Exception e) {
+            log.error("Failed to load coverage.json from {}", coverageJsonPath, e);
+            return Collections.emptySet();
+        }
+    }
+
+    private static String toCoverageJsonCallerKey(MethodSignature method) {
+        return NameFilter.filterName(method.getDeclClassType().getFullyQualifiedName())
+                + "." + method.getName()
+                + "(" + method.getParameterTypes().stream()
+                .map(sootup.core.types.Type::toString)
+                .collect(Collectors.joining(", ")) + ")";
+    }
+
+    private static String toCoverageJsonTargetKey(MethodSignature target) {
+        return NameFilter.filterName(target.getDeclClassType().getFullyQualifiedName())
+                + "." + target.getName()
+                + "(" + target.getParameterTypes().stream()
+                .map(sootup.core.types.Type::toString)
+                .collect(Collectors.joining(", ")) + ")";
     }
 
     /**
