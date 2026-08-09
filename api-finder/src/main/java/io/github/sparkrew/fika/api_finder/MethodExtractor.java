@@ -283,88 +283,58 @@ public class MethodExtractor {
     private static final long RANDOM_SEED = 42;
     private static final Random RANDOM = new Random(RANDOM_SEED);
 
-    private static final int RANDOM_WALK_ATTEMPTS = 10;
-
     /**
      * Find a single random path from the direct caller to a public method (entry point)
      * by doing a random walk backwards through the call graph.
      *
-     * The walk does not stop at intermediate entry points, allowing paths of varying
-     * lengths. After the walk, one of the entry points encountered along the chain is
-     * randomly selected. If the random walk fails to find any entry point (dead-end
-     * branch), it retries with a fresh walk. After all retries are exhausted, falls
-     * back to BFS to guarantee coverage.
+     * Unlike BFS (which always finds the shortest path) or naive DFS (which stops at
+     * the first entry point — usually equally short, since public methods are dense),
+     * this walks past intermediate entry points to discover paths of varying lengths,
+     * then randomly selects one of the entry points encountered along the walk.
      */
     private static List<List<MethodSignature>> findPathsToFirstPublicCallers(
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph,
             MethodSignature directCaller,
             Set<MethodSignature> entryPoints,
             Path packageMapPath) {
+        // Random walk: build a path from directCaller backwards, not stopping at entry points
+        List<MethodSignature> walkPath = new ArrayList<>();
+        walkPath.add(directCaller);
+        Set<MethodSignature> onPath = new HashSet<>();
+        onPath.add(directCaller);
 
-        for (int attempt = 0; attempt < RANDOM_WALK_ATTEMPTS; attempt++) {
-            List<MethodSignature> walkPath = new ArrayList<>();
-            walkPath.add(directCaller);
-            Set<MethodSignature> onPath = new HashSet<>();
-            onPath.add(directCaller);
-
-            MethodSignature current = directCaller;
-            while (true) {
-                List<MethodSignature> callers = new ArrayList<>(
-                        reverseCallGraph.getOrDefault(current, Collections.emptySet()));
-                callers.removeIf(c -> onPath.contains(c) || isThirdPartyMethod(c, packageMapPath));
-                if (callers.isEmpty()) {
-                    break;
-                }
-                MethodSignature next = callers.get(RANDOM.nextInt(callers.size()));
-                walkPath.add(next);
-                onPath.add(next);
-                current = next;
+        MethodSignature current = directCaller;
+        while (true) {
+            List<MethodSignature> callers = new ArrayList<>(
+                    reverseCallGraph.getOrDefault(current, Collections.emptySet()));
+            // Filter out nodes already on the path (cycles) and third-party methods
+            callers.removeIf(c -> onPath.contains(c) || isThirdPartyMethod(c, packageMapPath));
+            if (callers.isEmpty()) {
+                break;
             }
+            MethodSignature next = callers.get(RANDOM.nextInt(callers.size()));
+            walkPath.add(next);
+            onPath.add(next);
+            current = next;
+        }
 
-            List<Integer> entryPointIndices = new ArrayList<>();
-            for (int i = 1; i < walkPath.size(); i++) {
-                if (entryPoints.contains(walkPath.get(i))) {
-                    entryPointIndices.add(i);
-                }
-            }
-
-            if (!entryPointIndices.isEmpty()) {
-                int chosenIdx = entryPointIndices.get(RANDOM.nextInt(entryPointIndices.size()));
-                return List.of(new ArrayList<>(walkPath.subList(0, chosenIdx + 1)));
+        // Collect indices of all entry points found along the walk (excluding index 0
+        // which is directCaller — that case is handled by the caller)
+        List<Integer> entryPointIndices = new ArrayList<>();
+        for (int i = 1; i < walkPath.size(); i++) {
+            if (entryPoints.contains(walkPath.get(i))) {
+                entryPointIndices.add(i);
             }
         }
 
-        // Fallback: BFS to guarantee we find a path if one exists
-        return bfsFallback(reverseCallGraph, directCaller, entryPoints, packageMapPath);
-    }
-
-    private static List<List<MethodSignature>> bfsFallback(
-            Map<MethodSignature, Set<MethodSignature>> reverseCallGraph,
-            MethodSignature directCaller,
-            Set<MethodSignature> entryPoints,
-            Path packageMapPath) {
-        Set<MethodSignature> visited = new HashSet<>();
-        Deque<List<MethodSignature>> queue = new ArrayDeque<>();
-        queue.add(List.of(directCaller));
-        visited.add(directCaller);
-        while (!queue.isEmpty()) {
-            List<MethodSignature> currentPath = queue.poll();
-            MethodSignature current = currentPath.get(currentPath.size() - 1);
-            Set<MethodSignature> callers = reverseCallGraph.getOrDefault(current, Collections.emptySet());
-            for (MethodSignature caller : callers) {
-                if (visited.contains(caller) || isThirdPartyMethod(caller, packageMapPath)) {
-                    continue;
-                }
-                visited.add(caller);
-                List<MethodSignature> newPath = new ArrayList<>(currentPath);
-                newPath.add(caller);
-                if (entryPoints.contains(caller)) {
-                    return List.of(newPath);
-                }
-                queue.add(newPath);
-            }
+        if (entryPointIndices.isEmpty()) {
+            return Collections.emptyList();
         }
-        return Collections.emptyList();
+
+        // Randomly pick one of the entry points found along the walk
+        int chosenIdx = entryPointIndices.get(RANDOM.nextInt(entryPointIndices.size()));
+        // Return the sub-path from directCaller up to (and including) the chosen entry point
+        return List.of(new ArrayList<>(walkPath.subList(0, chosenIdx + 1)));
     }
 
     // Detect entry points - all public methods
