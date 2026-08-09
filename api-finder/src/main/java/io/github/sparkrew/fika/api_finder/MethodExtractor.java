@@ -285,56 +285,56 @@ public class MethodExtractor {
 
     /**
      * Find a single random path from the direct caller to a public method (entry point)
-     * by traversing backwards through the call graph using randomized DFS.
-     * Returns the path in reverse order: from directCaller to publicMethod.
-     * Stops at the first public method found (no intermediate public methods).
+     * by doing a random walk backwards through the call graph.
+     *
+     * Unlike BFS (which always finds the shortest path) or naive DFS (which stops at
+     * the first entry point — usually equally short, since public methods are dense),
+     * this walks past intermediate entry points to discover paths of varying lengths,
+     * then randomly selects one of the entry points encountered along the walk.
      */
     private static List<List<MethodSignature>> findPathsToFirstPublicCallers(
             Map<MethodSignature, Set<MethodSignature>> reverseCallGraph,
             MethodSignature directCaller,
             Set<MethodSignature> entryPoints,
             Path packageMapPath) {
+        // Random walk: build a path from directCaller backwards, not stopping at entry points
+        List<MethodSignature> walkPath = new ArrayList<>();
+        walkPath.add(directCaller);
         Set<MethodSignature> onPath = new HashSet<>();
         onPath.add(directCaller);
-        List<MethodSignature> result = randomDFS(reverseCallGraph, directCaller, entryPoints,
-                packageMapPath, onPath, new ArrayList<>(List.of(directCaller)));
-        if (result == null) {
+
+        MethodSignature current = directCaller;
+        while (true) {
+            List<MethodSignature> callers = new ArrayList<>(
+                    reverseCallGraph.getOrDefault(current, Collections.emptySet()));
+            // Filter out nodes already on the path (cycles) and third-party methods
+            callers.removeIf(c -> onPath.contains(c) || isThirdPartyMethod(c, packageMapPath));
+            if (callers.isEmpty()) {
+                break;
+            }
+            MethodSignature next = callers.get(RANDOM.nextInt(callers.size()));
+            walkPath.add(next);
+            onPath.add(next);
+            current = next;
+        }
+
+        // Collect indices of all entry points found along the walk (excluding index 0
+        // which is directCaller — that case is handled by the caller)
+        List<Integer> entryPointIndices = new ArrayList<>();
+        for (int i = 1; i < walkPath.size(); i++) {
+            if (entryPoints.contains(walkPath.get(i))) {
+                entryPointIndices.add(i);
+            }
+        }
+
+        if (entryPointIndices.isEmpty()) {
             return Collections.emptyList();
         }
-        return List.of(result);
-    }
 
-    private static List<MethodSignature> randomDFS(
-            Map<MethodSignature, Set<MethodSignature>> reverseCallGraph,
-            MethodSignature current,
-            Set<MethodSignature> entryPoints,
-            Path packageMapPath,
-            Set<MethodSignature> onPath,
-            List<MethodSignature> currentPath) {
-        List<MethodSignature> callers = new ArrayList<>(
-                reverseCallGraph.getOrDefault(current, Collections.emptySet()));
-        Collections.shuffle(callers, RANDOM);
-        for (MethodSignature caller : callers) {
-            if (onPath.contains(caller)) {
-                continue;
-            }
-            if (isThirdPartyMethod(caller, packageMapPath)) {
-                continue;
-            }
-            currentPath.add(caller);
-            if (entryPoints.contains(caller)) {
-                return currentPath;
-            }
-            onPath.add(caller);
-            List<MethodSignature> result = randomDFS(reverseCallGraph, caller, entryPoints,
-                    packageMapPath, onPath, currentPath);
-            if (result != null) {
-                return result;
-            }
-            onPath.remove(caller);
-            currentPath.remove(currentPath.size() - 1);
-        }
-        return null;
+        // Randomly pick one of the entry points found along the walk
+        int chosenIdx = entryPointIndices.get(RANDOM.nextInt(entryPointIndices.size()));
+        // Return the sub-path from directCaller up to (and including) the chosen entry point
+        return List.of(new ArrayList<>(walkPath.subList(0, chosenIdx + 1)));
     }
 
     // Detect entry points - all public methods
