@@ -99,42 +99,36 @@ public class MethodExtractor {
                                 thirdPartyMethod);
                     }
                 }
-                // If the direct caller is already a public method (entry point),
-                // we can directly record this as a path
+                List<List<MethodSignature>> candidatePaths = new ArrayList<>();
+                // If the direct caller is already a public entry point,
+                // the length-2 path is one candidate
                 if (entryPoints.contains(directCaller)) {
-                    List<MethodSignature> path = Arrays.asList(directCaller, thirdPartyMethod);
+                    candidatePaths.add(List.of(directCaller));
+                }
+                // Also search for longer paths through other callers of directCaller
+                List<List<MethodSignature>> longerPaths = findPathsToFirstPublicCallers(
+                        reverseCallGraph,
+                        directCaller,
+                        entryPoints,
+                        packageMapPath
+                );
+                candidatePaths.addAll(longerPaths);
+
+                if (!candidatePaths.isEmpty()) {
+                    // Randomly pick one path from all candidates
+                    List<MethodSignature> chosenReversePath = candidatePaths.get(
+                            RANDOM.nextInt(candidatePaths.size()));
+                    List<MethodSignature> completePath = new ArrayList<>(chosenReversePath);
+                    Collections.reverse(completePath);
+                    completePath.add(thirdPartyMethod);
+                    MethodSignature publicMethod = completePath.get(0);
                     ThirdPartyPath tpPath = new ThirdPartyPath(
-                            directCaller,
+                            publicMethod,
                             thirdPartyMethod,
-                            path,
+                            completePath,
                             callCount
                     );
                     thirdPartyPaths.add(tpPath);
-                } else {
-                    // If the direct caller is not public, we need to do BFS to find
-                    // the first public methods that can reach this direct caller
-                    List<List<MethodSignature>> pathsToPublicMethods = findPathsToFirstPublicCallers(
-                            reverseCallGraph,
-                            directCaller,
-                            entryPoints,
-                            packageMapPath
-                    );
-                    // For each path found from public method to direct caller, append the third party method
-                    for (List<MethodSignature> pathToDirectCaller : pathsToPublicMethods) {
-                        // The path is in reverse order (from directCaller to publicMethod)
-                        // We need to reverse it and append the third party method
-                        List<MethodSignature> completePath = new ArrayList<>(pathToDirectCaller);
-                        Collections.reverse(completePath);
-                        completePath.add(thirdPartyMethod);
-                        MethodSignature publicMethod = completePath.get(0);
-                        ThirdPartyPath tpPath = new ThirdPartyPath(
-                                publicMethod,
-                                thirdPartyMethod,
-                                completePath,
-                                callCount
-                        );
-                        thirdPartyPaths.add(tpPath);
-                    }
                 }
             }
             log.info("Collected " + thirdPartyPaths.size() + " third-party paths.");
