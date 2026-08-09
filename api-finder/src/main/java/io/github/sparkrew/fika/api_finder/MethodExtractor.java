@@ -300,8 +300,10 @@ public class MethodExtractor {
             MethodSignature directCaller,
             Set<MethodSignature> entryPoints,
             Path packageMapPath) {
+        Set<MethodSignature> onPath = new HashSet<>();
+        onPath.add(directCaller);
         List<MethodSignature> result = randomDFS(reverseCallGraph, directCaller, entryPoints,
-                packageMapPath, new HashSet<>(), new ArrayList<>(List.of(directCaller)));
+                packageMapPath, onPath, new ArrayList<>(List.of(directCaller)));
         if (result == null) {
             return Collections.emptyList();
         }
@@ -313,29 +315,30 @@ public class MethodExtractor {
             MethodSignature current,
             Set<MethodSignature> entryPoints,
             Path packageMapPath,
-            Set<MethodSignature> visited,
+            Set<MethodSignature> onPath,
             List<MethodSignature> currentPath) {
-        visited.add(current);
         List<MethodSignature> callers = new ArrayList<>(
                 reverseCallGraph.getOrDefault(current, Collections.emptySet()));
         Collections.shuffle(callers, RANDOM);
         for (MethodSignature caller : callers) {
-            if (visited.contains(caller)) {
+            if (onPath.contains(caller)) {
                 continue;
             }
             if (isThirdPartyMethod(caller, packageMapPath)) {
                 continue;
             }
-            List<MethodSignature> newPath = new ArrayList<>(currentPath);
-            newPath.add(caller);
+            currentPath.add(caller);
             if (entryPoints.contains(caller)) {
-                return newPath;
+                return currentPath;
             }
+            onPath.add(caller);
             List<MethodSignature> result = randomDFS(reverseCallGraph, caller, entryPoints,
-                    packageMapPath, visited, newPath);
+                    packageMapPath, onPath, currentPath);
             if (result != null) {
                 return result;
             }
+            onPath.remove(caller);
+            currentPath.remove(currentPath.size() - 1);
         }
         return null;
     }
