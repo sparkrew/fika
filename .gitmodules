@@ -1,4 +1,0 @@
-[submodule "pipeline"]
-	path = pipeline
-	url = https://github.com/meriembenchaaben/testGeneration
-	branch = main
