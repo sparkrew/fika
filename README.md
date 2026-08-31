@@ -43,7 +43,7 @@ Fika is a tool that performs static and dynamic reachability analysis of third-p
 ]
 ```
 
- - **Reachability scenario generator** takes the list of uncovered third-party call sites and creates a prompt. When passing code blocks to the prompt, the reachability scenario generator converts newline or tab characters (\n, \t) accordingly. It then passes this prompt to an LLM to generate reachability scenarios that cover these call sites. The test generator also integrates and executes the generated tests against the project. If the reachability scenarios cannot be executed successfully or fail to reach the target, it retries until either successful tests are generated or the maximum number of retries is reached. More details about the test generator can be found [here](https://github.com/meriembenchaaben/testGeneration/blob/main/README.md).
+ - **Reachability scenario generator** takes the list of uncovered third-party call sites and creates a prompt. When passing code blocks to the prompt, the reachability scenario generator converts newline or tab characters (\n, \t) accordingly. It then passes this prompt to an LLM to generate reachability scenarios that cover these call sites. The test generator also integrates and executes the generated tests against the project. If the reachability scenarios cannot be executed successfully or fail to reach the target, it retries until either successful tests are generated or the maximum number of retries is reached. More details about the test generator can be found [here](pipeline/README.md).
 
 ## Usage
 
