@@ -51,24 +51,22 @@ Hard constraints:
 
 PURE_LLM_SYSTEM_PROMPT = """You are an expert Java developer who writes good unit tests in order to maximize code coverage. You are specialized in Maven and JUnit 5 testing framework. You are an expert at identifying third-party and dependency method calls in Java source code."""
 
-PURE_LLM_USER_PROMPT_TEMPLATE = """You are given the complete source code of a Java project. Your task is to generate JUnit 5 reachability tests that exercise as many third-party / dependency method call sites as possible.
+PURE_LLM_USER_PROMPT_TEMPLATE = """You are given the source code of a single Java class from a project. Your task is to generate JUnit 5 reachability tests that exercise as many third-party / dependency method call sites in this class as possible.
 
 A "reachability test" is a test whose only goal is to invoke a specific third-party method during execution. No assertions, inspections, or verifications are required.
 
 A "third-party / dependency method" is any method that belongs to an external library (not defined in this project’s own source code). Examples include calls to Apache Commons, Google Guava, Jackson, SLF4J, database drivers, HTTP clients, etc.
 
 Instructions:
-1. Analyze the provided source code.
+1. Analyze the provided source code of this class.
 2. Identify all call sites where a third-party / dependency method is invoked.
 3. For each such call site, generate a separate JUnit 5 test class that triggers execution of that call site.
 4. Each test class should have exactly ONE @Test method.
 5. Name each test class descriptively: Reachability_<ClassName>_<MethodName>_<index>Test (e.g., Reachability_UserService_save_1Test).
 
-You are provided with:
-projectSourceCode: The complete source code of the Java project (all .java files).
+Source file: {source_file_path}
 
-projectSourceCode:
-{projectSourceCode}
+{classSourceCode}
 
 Hard constraints:
 - Each test class MUST NOT extend any other class (no ‘extends’ keyword).
@@ -95,8 +93,9 @@ Compilation / runtime errors:
 Previously generated test code:
 {previous_code}
 
-The complete project source code (for reference):
-{projectSourceCode}
+Original source file: {source_file_path}
+
+{classSourceCode}
 
 Hard constraints (unchanged):
 - Each test class MUST NOT extend any other class (no ‘extends’ keyword).

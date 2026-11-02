@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -11,11 +10,12 @@ from time import perf_counter
 from junit_agent.hf_model import build_local_hf_llm
 from junit_agent.deepseek_model import build_deepseek_llm, build_openrouter_llm
 from junit_agent.graph_app import AppConfig
+from junit_agent.extract_java_sources import extract_java_sources
 from junit_agent.pure_llm_graph import (
     PureLLMInput,
-    build_pure_llm_graph,
     load_validation_targets,
-    pure_llm_initial_state,
+    validate_coverage,
+    process_single_file,
 )
 
 
@@ -24,8 +24,8 @@ def parse_args() -> argparse.Namespace:
         prog="pure-llm-junit-agent",
         description=(
             "Generate JUnit 5 reachability tests using a pure-LLM approach. "
-            "The LLM receives all project source code and generates tests for "
-            "every third-party dependency call site it can find."
+            "The LLM receives each Java source file one at a time and generates "
+            "tests for third-party dependency call sites in that file."
         ),
     )
     p.add_argument("repo_root", type=str, help="Path to the target Maven Java project")
@@ -46,17 +46,21 @@ def parse_args() -> argparse.Namespace:
         "--model",
         type=str,
         default="Qwen/Qwen2.5-1.5B-Instruct",
-        help="Model id (HuggingFace model or 'deepseek-chat' for DeepSeek)",
+        help="Model id",
     )
     p.add_argument(
         "--api",
         type=str,
         choices=["hf", "deepseek", "openrouter"],
         default="hf",
-        help="API to use: 'hf' for HuggingFace (local), 'deepseek' for DeepSeek API, or 'openrouter' for OpenRouter API",
+        help="API to use: 'hf' for HuggingFace (local), 'deepseek' for DeepSeek, or 'openrouter' for OpenRouter",
     )
-    p.add_argument("--api-key", type=str, help="API key for DeepSeek/OpenRouter (or set DEEPSEEK_API_KEY / OPENROUTER_API_KEY env var)")
-    p.add_argument("--iters", type=int, default=5, help="Max generate-run iterations (default: 5)")
+    p.add_argument(
+        "--api-key",
+        type=str,
+        help="API key for DeepSeek/OpenRouter (or set env var DEEPSEEK_API_KEY / OPENROUTER_API_KEY)",
+    )
+    p.add_argument("--iters", type=int, default=5, help="Max retry iterations per file (default: 5)")
     p.add_argument("--temp", type=float, default=0.1, help="Sampling temperature")
     p.add_argument("--max-new", type=int, default=4096, help="Max new tokens")
     p.add_argument("--run-all", action="store_true", help="Run full mvn test suite (default runs only generated tests)")
@@ -116,7 +120,7 @@ def main() -> int:
         print(f"Using local HuggingFace model: {args.model}")
 
     # -----------------------------------------------------------------------
-    # Build graph and initial state
+    # Config
     # -----------------------------------------------------------------------
     cfg = AppConfig(
         repo_root=repo_root,
@@ -125,20 +129,9 @@ def main() -> int:
         run_only_generated_test=(not args.run_all),
     )
 
-    inp = PureLLMInput(test_package=args.test_package)
-    app = build_pure_llm_graph(llm=llm, cfg=cfg)
-    state = pure_llm_initial_state(cfg, inp, targets)
-
     # -----------------------------------------------------------------------
     # Logging
     # -----------------------------------------------------------------------
-    logger = logging.getLogger("junit_agent.pure_llm")
-    logger.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    logger.addHandler(ch)
-
     text_log_fh = None
     if args.log_file:
         text_log_fh = open(args.log_file, "a", encoding="utf-8")
@@ -146,36 +139,117 @@ def main() -> int:
         text_log_fh.write(f"PURE-LLM LOG SESSION: {datetime.now().isoformat()}\n")
         text_log_fh.write("=" * 100 + "\n\n")
 
-    def _tlog(line: str) -> None:
+    def _log(msg: str) -> None:
+        print(msg)
         if text_log_fh:
-            text_log_fh.write(line + "\n")
+            text_log_fh.write(msg + "\n")
             text_log_fh.flush()
 
     # -----------------------------------------------------------------------
-    # Run the graph
+    # Extract Java source files
     # -----------------------------------------------------------------------
-    final_state = None
+    _log("[Extract] reading project source files")
+    source_block, file_paths = extract_java_sources(repo_root)
+
+    # Build a map of file_path -> content
+    file_contents: dict[str, str] = {}
+    for java_file in sorted(repo_root.rglob("*.java")):
+        rel = str(java_file.relative_to(repo_root))
+        if "src/test" in rel:
+            continue
+        if rel in file_paths:
+            try:
+                file_contents[rel] = java_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+    _log(f"[Extract] found {len(file_contents)} Java source files to process")
+
+    # -----------------------------------------------------------------------
+    # Process each file
+    # -----------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PURE-LLM REACHABILITY TEST GENERATION")
+    print("PURE-LLM REACHABILITY TEST GENERATION (class-by-class)")
     print(f"Project: {repo_root}")
+    print(f"Source files: {len(file_contents)}")
     print(f"Validation targets: {len(targets)}")
+    print(f"Max retries per file: {args.iters}")
     print("=" * 80 + "\n")
 
-    recursion_limit = (args.iters * 6) + 10
-    try:
-        for event in app.stream(state, config={"recursion_limit": recursion_limit}):
-            for node, st in event.items():
-                trace = st.get("trace", [])
-                if trace:
-                    print(trace[-1])
-                    _tlog(trace[-1])
-                final_state = st
-    except KeyboardInterrupt:
-        print("\n!!! INTERRUPTED !!!")
-    except Exception as e:
-        print(f"\n!!! ERROR: {e}")
-        import traceback
-        traceback.print_exc()
+    all_results = []
+    all_token_usage = []
+    all_test_classes = []
+    files_succeeded = 0
+
+    for idx, (rel_path, content) in enumerate(file_contents.items(), 1):
+        _log(f"\n{'='*80}")
+        _log(f"[{idx}/{len(file_contents)}] Processing: {rel_path}")
+        _log(f"{'='*80}")
+
+        try:
+            result = process_single_file(
+                llm=llm,
+                cfg=cfg,
+                source_file_path=rel_path,
+                class_source_code=content,
+                test_package=args.test_package,
+                max_iters=args.iters,
+                log_fn=_log,
+            )
+        except KeyboardInterrupt:
+            _log("\n!!! INTERRUPTED !!!")
+            break
+        except Exception as e:
+            _log(f"  [Error] {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+
+        all_results.append(result)
+        all_token_usage.extend(result.token_usage)
+        if result.success:
+            files_succeeded += 1
+            all_test_classes.extend(result.test_classes)
+            _log(f"  [Done] {len(result.test_classes)} test class(es) generated successfully")
+
+            # Per-file validation: check coverage after this file's tests
+            cov_now, total_targets, _ = validate_coverage(repo_root, targets)
+            _log(f"  [Coverage] {cov_now}/{total_targets} targets covered so far")
+        else:
+            _log(f"  [Done] failed after {result.iterations_used} iteration(s)")
+
+    # -----------------------------------------------------------------------
+    # Final validation: run all successful tests together + validate
+    # -----------------------------------------------------------------------
+    _log(f"\n{'='*80}")
+    _log("[Final] running all generated tests together + validating coverage")
+    _log(f"{'='*80}")
+
+    final_maven_success = False
+    if all_test_classes:
+        from junit_agent.tools import run_maven_test as _run_mvn
+        test_fqcns = [f"{args.test_package}.{cls['class_name']}" for cls in all_test_classes]
+        test_filter = "+".join(test_fqcns)
+        rr = _run_mvn(
+            repo_root=repo_root,
+            mvn_cmd=args.mvn,
+            test_fqcn=test_filter if not args.run_all else None,
+            timeout_s=600,
+        )
+        final_maven_success = rr.success
+        _log(f"[Final] Maven: success={rr.success}, exit={rr.exit_code}")
+
+    covered, total, validation_details = validate_coverage(repo_root, targets)
+    _log(f"[Final] {covered}/{total} dependency call sites covered")
+
+    # -----------------------------------------------------------------------
+    # Token usage summary
+    # -----------------------------------------------------------------------
+    input_tokens_list = [u.get("input_tokens", 0) for u in all_token_usage if u.get("input_tokens")]
+    output_tokens_list = [u.get("output_tokens", 0) for u in all_token_usage if u.get("output_tokens")]
+    total_input = sum(input_tokens_list)
+    total_output = sum(output_tokens_list)
+    num_calls = len(input_tokens_list)
 
     # -----------------------------------------------------------------------
     # Print summary
@@ -184,91 +258,81 @@ def main() -> int:
     print("RESULTS SUMMARY")
     print("=" * 80)
 
-    if final_state:
-        covered = final_state.get("covered_count", 0)
-        total = final_state.get("total_targets", 0)
-        success = final_state.get("success", False)
-        iterations = final_state.get("iteration", 0)
-        test_classes = final_state.get("test_classes", [])
-
-        print(f"Tests compiled/ran successfully: {success}")
-        print(f"Iterations used: {iterations}")
-        print(f"Test classes generated: {len(test_classes)}")
-        print(f"Dependency call sites covered: {covered}/{total}", end="")
-        if total > 0:
-            print(f" ({covered / total * 100:.1f}%)")
-        else:
-            print()
-
-        # List covered and uncovered targets
-        results = final_state.get("validation_results", [])
-        if results:
-            covered_list = [r for r in results if r.get("covered")]
-            uncovered_list = [r for r in results if not r.get("covered")]
-
-            if covered_list:
-                print(f"\nCovered ({len(covered_list)}):")
-                for r in covered_list:
-                    print(f"  + {r['third_party_method']}")
-
-            if uncovered_list:
-                print(f"\nNot covered ({len(uncovered_list)}):")
-                for r in uncovered_list:
-                    print(f"  - {r['third_party_method']}")
-
-        # Token usage summary
-        token_log = final_state.get("token_usage_log", [])
-        if token_log:
-            input_tokens_list = [u.get("input_tokens", 0) for u in token_log if u.get("input_tokens")]
-            output_tokens_list = [u.get("output_tokens", 0) for u in token_log if u.get("output_tokens")]
-            total_input = sum(input_tokens_list)
-            total_output = sum(output_tokens_list)
-            num_calls = len(input_tokens_list)
-
-            print(f"\nToken Usage ({num_calls} LLM call(s)):")
-            print(f"  Total input tokens:  {total_input:,}")
-            print(f"  Total output tokens: {total_output:,}")
-            print(f"  Total tokens:        {total_input + total_output:,}")
-            if num_calls > 0:
-                print(f"  Avg input tokens:    {total_input / num_calls:,.0f}")
-                print(f"  Avg output tokens:   {total_output / num_calls:,.0f}")
-
-            for i, u in enumerate(token_log, 1):
-                inp_t = u.get("input_tokens", 0)
-                out_t = u.get("output_tokens", 0)
-                print(f"  Iteration {i}: input={inp_t:,}  output={out_t:,}  total={inp_t + out_t:,}")
-
-        # Save results to JSON
-        if args.output_json:
-            token_summary = {}
-            if token_log:
-                token_summary = {
-                    "total_input_tokens": total_input,
-                    "total_output_tokens": total_output,
-                    "total_tokens": total_input + total_output,
-                    "avg_input_tokens": total_input / num_calls if num_calls > 0 else 0,
-                    "avg_output_tokens": total_output / num_calls if num_calls > 0 else 0,
-                    "per_iteration": token_log,
-                }
-            output_data = {
-                "success": success,
-                "iterations": iterations,
-                "test_classes_generated": len(test_classes),
-                "covered_count": covered,
-                "total_targets": total,
-                "coverage_rate": covered / total if total > 0 else 0,
-                "token_usage": token_summary,
-                "validation_results": results,
-                "test_class_names": [c["class_name"] for c in test_classes],
-            }
-            Path(args.output_json).write_text(
-                json.dumps(output_data, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-            print(f"\nResults saved to: {args.output_json}")
+    print(f"Source files processed: {len(all_results)}/{len(file_contents)}")
+    print(f"Files with successful tests: {files_succeeded}")
+    print(f"Total test classes generated: {len(all_test_classes)}")
+    print(f"Final Maven build: {'passed' if final_maven_success else 'failed'}")
+    print(f"Dependency call sites covered: {covered}/{total}", end="")
+    if total > 0:
+        print(f" ({covered / total * 100:.1f}%)")
     else:
-        print("No final state produced.")
+        print()
+
+    if num_calls > 0:
+        print(f"\nToken Usage ({num_calls} LLM call(s)):")
+        print(f"  Total input tokens:  {total_input:,}")
+        print(f"  Total output tokens: {total_output:,}")
+        print(f"  Total tokens:        {total_input + total_output:,}")
+        print(f"  Avg input tokens:    {total_input / num_calls:,.0f}")
+        print(f"  Avg output tokens:   {total_output / num_calls:,.0f}")
+
+    # List covered and uncovered
+    if validation_details:
+        covered_list = [r for r in validation_details if r.get("covered")]
+        uncovered_list = [r for r in validation_details if not r.get("covered")]
+
+        if covered_list:
+            print(f"\nCovered ({len(covered_list)}):")
+            for r in covered_list:
+                print(f"  + {r['third_party_method']}")
+
+        if uncovered_list:
+            print(f"\nNot covered ({len(uncovered_list)}):")
+            for r in uncovered_list:
+                print(f"  - {r['third_party_method']}")
 
     print("=" * 80)
+
+    # -----------------------------------------------------------------------
+    # Save results to JSON
+    # -----------------------------------------------------------------------
+    if args.output_json:
+        token_summary = {}
+        if num_calls > 0:
+            token_summary = {
+                "total_input_tokens": total_input,
+                "total_output_tokens": total_output,
+                "total_tokens": total_input + total_output,
+                "avg_input_tokens": total_input / num_calls,
+                "avg_output_tokens": total_output / num_calls,
+                "num_llm_calls": num_calls,
+            }
+        output_data = {
+            "source_files_processed": len(all_results),
+            "files_with_successful_tests": files_succeeded,
+            "test_classes_generated": len(all_test_classes),
+            "final_maven_success": final_maven_success,
+            "covered_count": covered,
+            "total_targets": total,
+            "coverage_rate": covered / total if total > 0 else 0,
+            "token_usage": token_summary,
+            "per_file_results": [
+                {
+                    "source_file": r.source_file,
+                    "success": r.success,
+                    "iterations_used": r.iterations_used,
+                    "test_classes": [c["class_name"] for c in r.test_classes],
+                    "token_usage": r.token_usage,
+                }
+                for r in all_results
+            ],
+            "validation_results": validation_details,
+            "test_class_names": [c["class_name"] for c in all_test_classes],
+        }
+        Path(args.output_json).write_text(
+            json.dumps(output_data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"\nResults saved to: {args.output_json}")
 
     # Cleanup
     if text_log_fh:
@@ -277,9 +341,7 @@ def main() -> int:
     elapsed = perf_counter() - start_time
     print(f"Total elapsed time: {format_elapsed_time(elapsed)}")
 
-    if final_state and final_state.get("success", False):
-        return 0
-    return 1
+    return 0 if covered > 0 else 1
 
 
 if __name__ == "__main__":

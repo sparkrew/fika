@@ -1,89 +1,91 @@
-# Pure-LLM Reachability Scenario Generation Pipeline
+# Pure-LLM Reachability Test Generation Pipeline
 
-This document describes the **pure-LLM** pipeline for generating JUnit 5 reachability scenarios. Unlike the original pipeline (which reads pre-extracted method data from a JSON file and feeds it to the LLM), this approach gives the LLM **all the project source code** and asks it to identify and generate scenarios for third-party dependency call sites on its own.
+This document describes the **pure-LLM** pipeline for generating JUnit 5 reachability tests. Unlike the original pipeline (which reads pre-extracted method data from a JSON file and feeds it to the LLM), this approach gives the LLM **one Java source file at a time** and asks it to identify and generate tests for third-party dependency call sites in that file.
 
 ## Overview
 
 | Aspect | Original pipeline | Pure-LLM pipeline |
 |---|---|---|
-| LLM input | Structured JSON (entryPoint, methodSources, constructors, etc.) | All `.java` source files from the project |
-| LLM task | Generate one scenario for one specific call path | Identify all dependency call sites and generate scenarios for each |
+| LLM input | Structured JSON (entryPoint, methodSources, constructors, etc.) | One `.java` source file per LLM call |
+| LLM task | Generate one test for one specific call path | Identify all dependency call sites in a class and generate tests for each |
 | JSON file role | Drives prompting (tells the LLM what to test) | Validation only (used to measure how many targets the LLM covered) |
 | Feedback loop | Compilation errors + coverage gaps | Compilation/runtime errors only |
+| Context usage | Small (one call chain) | Moderate (one class at a time, stays within context limits) |
 
 ## Pipeline Flow
 
 ```
-┌─────────────┐
-│  1. Extract  │  Walk project, read all .java files (excl. src/test/)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  2. Generate │  Prompt LLM with all source code
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  3. Write    │  Write generated test classes to src/test/java/
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  4. Run      │  Maven compile + test + JaCoCo coverage
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐     ┌───────────────┐
-│  5. Decide   │────▶│  6. Validate  │  (when tests pass or max iterations)
-└──────┬──────┘     └──────┬────────┘
-       │ (retry on               │
-       │  compile error)         ▼
-       │               ┌────────────────┐
-       └──────◀────────│  7. Finalize   │  Report: X/N targets covered
-                       └────────────────┘
+┌──────────────────┐
+│  1. Extract       │  Walk project, read all .java files (excl. src/test/)
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────────┐
+│  2. For each source file:                                    │
+│                                                              │
+│   ┌─────────────┐                                            │
+│   │  Generate    │  Prompt LLM with this file's source code  │
+│   └──────┬──────┘                                            │
+│          │                                                   │
+│          ▼                                                   │
+│   ┌─────────────┐                                            │
+│   │  Write       │  Write generated test classes             │
+│   └──────┬──────┘                                            │
+│          │                                                   │
+│          ▼                                                   │
+│   ┌─────────────┐                                            │
+│   │  Run Maven   │  Compile + test                           │
+│   └──────┬──────┘                                            │
+│          │                                                   │
+│          ├── success ──▶ keep tests, next file               │
+│          │                                                   │
+│          └── failure ──▶ retry with error feedback            │
+│                         (up to --iters times)                │
+│                         then cleanup, next file              │
+└──────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────┐
+│  3. Final build   │  Run all successful tests together
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  4. Validate      │  Check JSON targets against JaCoCo coverage
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  5. Report        │  X/N targets covered + token usage
+└──────────────────┘
 ```
 
 ### Step 1: Extract
 
-Walks the project directory and reads every `.java` file, **excluding** anything under `src/test/`. Each file's content is prefixed with a `// FILE: <relative-path>` header. The result is a single string containing the entire project source.
+Walks the project directory and reads every `.java` file, **excluding** anything under `src/test/`. Returns a map of relative file paths to their contents.
 
 **Module:** `extract_java_sources.py`
 
-### Step 2: Generate
+### Step 2: Per-file generate + retry loop
 
-On the **first iteration**, the LLM receives the full project source code and is asked to:
+For **each Java source file**, the LLM receives that file's source code and is asked to:
 
-1. Analyze the code
-2. Identify all third-party / dependency method call sites
-3. Generate a separate JUnit 5 test class for each call site
+1. Identify all third-party / dependency method call sites in this class
+2. Generate a separate JUnit 5 test class for each call site
 
-On **retry iterations** (after compilation errors), the LLM receives:
-- The compilation/runtime errors from Maven
-- The previously generated code
-- The full project source code (for reference)
+If the generated tests **fail to compile or run**, the LLM receives the Maven error output and the previous code, and is asked to fix them. This retries up to `--iters` times.
 
-The LLM is asked to fix the errors while preserving all hard constraints.
+If the tests **pass**, they are kept and the pipeline moves to the next file. If all retries are exhausted, the failed tests are cleaned up.
 
-**Module:** `pure_llm_graph.py` → `node_generate`
+This class-by-class approach keeps each prompt small and well within LLM context limits, even for large projects.
 
-### Step 3: Write
+**Module:** `pure_llm_graph.py` → `process_single_file()`
 
-Each generated test class is written to `src/test/java/<package>/<ClassName>.java` under the project root. Test classes are split from the LLM output using the `// --- NEW TEST CLASS ---` separator.
+### Step 3: Final build
 
-### Step 4: Run
+After processing all files, runs Maven once more with all the successfully generated test classes to ensure they work together.
 
-Runs `mvn test` with JaCoCo coverage enabled. If `--run-all` is not set, only the generated test classes are executed.
-
-### Step 5: Decide
-
-- **Tests passed →** proceed to validation
-- **Tests failed + iterations remaining →** retry (go back to step 2 with error feedback)
-- **Max iterations reached →** proceed to validation anyway
-
-**Only compilation/runtime errors are fed back to the LLM.** Coverage information is NOT used as feedback.
-
-### Step 6: Validate
+### Step 4: Validate
 
 Loads the JSON targets file and checks each `(thirdPartyMethod, directCaller)` pair against JaCoCo coverage data. Reports:
 
@@ -93,17 +95,17 @@ Loads the JSON targets file and checks each `(thirdPartyMethod, directCaller)` p
 
 Each target is checked using the existing `get_coverage_result()` function which parses JaCoCo XML reports.
 
-### Step 7: Finalize
+### Step 5: Report
 
-Prints the coverage summary. If the tests did not compile/pass, cleans up the generated test files.
+Prints the coverage summary and token usage statistics (total, average per call, per-file breakdown).
 
 ## Usage
 
 ```bash
 python -m junit_agent.main_pure_llm /path/to/java/project \
     --targets targets.json \
-    --api deepseek \
-    --model deepseek-chat \
+    --api openrouter \
+    --model deepseek/deepseek-v3.2 \
     --iters 5 \
     --test-package generated \
     --output-json results.json \
@@ -117,10 +119,10 @@ python -m junit_agent.main_pure_llm /path/to/java/project \
 | `repo_root` | Yes | Path to the Maven Java project |
 | `--targets` | Yes | JSON file with third-party method targets (for validation) |
 | `--test-package` | No | Package for generated tests (default: `generated`) |
-| `--api` | No | `hf` (local HuggingFace) or `deepseek` (default: `hf`) |
+| `--api` | No | `hf` (local HuggingFace), `deepseek`, or `openrouter` (default: `hf`) |
 | `--model` | No | Model identifier |
-| `--api-key` | No | API key for DeepSeek |
-| `--iters` | No | Max retry iterations (default: 5) |
+| `--api-key` | No | API key for DeepSeek/OpenRouter |
+| `--iters` | No | Max retry iterations per file (default: 5) |
 | `--temp` | No | Sampling temperature (default: 0.1) |
 | `--max-new` | No | Max new tokens (default: 4096) |
 | `--run-all` | No | Run full Maven test suite instead of only generated tests |
@@ -139,14 +141,14 @@ code coverage. You are specialized in Maven and JUnit 5 testing framework. You a
 an expert at identifying third-party and dependency method calls in Java source code.
 ```
 
-### First-iteration User Prompt
+### Per-file User Prompt
 
 ```
-You are given the complete source code of a Java project. Your task is to generate
-JUnit 5 reachability tests that exercise as many third-party / dependency method call
-sites as possible.
+You are given the source code of a single Java class from a project. Your task is to
+generate JUnit 5 reachability tests that exercise as many third-party / dependency
+method call sites in this class as possible.
 
-A "reachability scenario" is a piece of code whose only goal is to invoke a specific third-party
+A "reachability test" is a test whose only goal is to invoke a specific third-party
 method during execution. No assertions, inspections, or verifications are required.
 
 A "third-party / dependency method" is any method that belongs to an external library
@@ -154,7 +156,7 @@ A "third-party / dependency method" is any method that belongs to an external li
 Commons, Google Guava, Jackson, SLF4J, database drivers, HTTP clients, etc.
 
 Instructions:
-1. Analyze the provided source code.
+1. Analyze the provided source code of this class.
 2. Identify all call sites where a third-party / dependency method is invoked.
 3. For each such call site, generate a separate JUnit 5 test class that triggers
    execution of that call site.
@@ -162,11 +164,9 @@ Instructions:
 5. Name each test class descriptively:
    Reachability_<ClassName>_<MethodName>_<index>Test
 
-You are provided with:
-projectSourceCode: The complete source code of the Java project (all .java files).
+Source file: {source_file_path}
 
-projectSourceCode:
-{projectSourceCode}
+{classSourceCode}
 
 Hard constraints:
 - Each test class MUST NOT extend any other class (no 'extends' keyword).
@@ -198,8 +198,9 @@ Compilation / runtime errors:
 Previously generated test code:
 {previous_code}
 
-The complete project source code (for reference):
-{projectSourceCode}
+Original source file: {source_file_path}
+
+{classSourceCode}
 
 [... same hard constraints as above ...]
 ```
@@ -229,14 +230,20 @@ Only `thirdPartyMethod` and the path are required for validation. The rest is in
 ### Console output
 
 ```
-[Validate] 12/20 targets covered
-
 RESULTS SUMMARY
 ================================================================================
-Tests compiled/ran successfully: True
-Iterations used: 2
-Test classes generated: 15
+Source files processed: 25/25
+Files with successful tests: 20
+Total test classes generated: 48
+Final Maven build: passed
 Dependency call sites covered: 12/20 (60.0%)
+
+Token Usage (30 LLM call(s)):
+  Total input tokens:  125,000
+  Total output tokens: 45,000
+  Total tokens:        170,000
+  Avg input tokens:    4,167
+  Avg output tokens:   1,500
 
 Covered (12):
   + org.apache.commons.lang3.StringUtils.isEmpty
@@ -252,12 +259,30 @@ Not covered (8):
 
 ```json
 {
-  "success": true,
-  "iterations": 2,
-  "test_classes_generated": 15,
+  "source_files_processed": 25,
+  "files_with_successful_tests": 20,
+  "test_classes_generated": 48,
+  "final_maven_success": true,
   "covered_count": 12,
   "total_targets": 20,
   "coverage_rate": 0.6,
+  "token_usage": {
+    "total_input_tokens": 125000,
+    "total_output_tokens": 45000,
+    "total_tokens": 170000,
+    "avg_input_tokens": 4167,
+    "avg_output_tokens": 1500,
+    "num_llm_calls": 30
+  },
+  "per_file_results": [
+    {
+      "source_file": "src/main/java/com/example/Service.java",
+      "success": true,
+      "iterations_used": 1,
+      "test_classes": ["Reachability_Service_process_1Test"],
+      "token_usage": [{"input_tokens": 5000, "output_tokens": 1500, "total_tokens": 6500}]
+    }
+  ],
   "validation_results": [
     {
       "third_party_method": "org.apache.commons.lang3.StringUtils.isEmpty",
@@ -266,6 +291,6 @@ Not covered (8):
       "error": null
     }
   ],
-  "test_class_names": ["Reachability_Service_process_1Test", "..."]
+  "test_class_names": ["Reachability_Service_process_1Test"]
 }
 ```
