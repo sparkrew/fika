@@ -64,6 +64,9 @@ class PureLLMState(TypedDict, total=False):
     success: bool
     trace: List[str]
 
+    # token usage tracking
+    token_usage_log: List[Dict[str, int]]  # [{input_tokens, output_tokens, total_tokens}]
+
     # validation
     validation_targets: List[Dict[str, Any]]
     validation_results: List[Dict[str, Any]]
@@ -184,6 +187,19 @@ def build_pure_llm_graph(llm: Runnable, cfg: AppConfig) -> Any:
         state["last_prompt"] = rendered
 
         response = llm.invoke(rendered)
+
+        # Extract token usage from response metadata
+        usage = {}
+        if hasattr(response, "response_metadata"):
+            meta = response.response_metadata or {}
+            token_usage = meta.get("token_usage") or meta.get("usage") or {}
+            usage = {
+                "input_tokens": token_usage.get("prompt_tokens", 0),
+                "output_tokens": token_usage.get("completion_tokens", 0),
+                "total_tokens": token_usage.get("total_tokens", 0),
+            }
+        state.setdefault("token_usage_log", []).append(usage)
+
         if hasattr(response, "content"):
             raw = response.content
         elif not isinstance(response, str):
@@ -199,8 +215,11 @@ def build_pure_llm_graph(llm: Runnable, cfg: AppConfig) -> Any:
             cls["rel_path"] = _java_rel_path(state["test_package"], cls["class_name"])
         state["test_classes"] = classes
 
+        token_msg = ""
+        if usage.get("input_tokens"):
+            token_msg = f", input_tokens={usage['input_tokens']}, output_tokens={usage['output_tokens']}"
         state.setdefault("trace", []).append(
-            f"[Generate] produced {len(classes)} test class(es), {len(raw)} chars"
+            f"[Generate] produced {len(classes)} test class(es), {len(raw)} chars{token_msg}"
         )
 
         state.setdefault("iteration_log", [])
@@ -210,6 +229,7 @@ def build_pure_llm_graph(llm: Runnable, cfg: AppConfig) -> Any:
             "generated_code_length": len(raw),
             "test_class_count": len(classes),
             "test_class_names": [c["class_name"] for c in classes],
+            "token_usage": usage,
         })
 
         return state
@@ -424,4 +444,5 @@ def pure_llm_initial_state(
         total_targets=len(targets),
         iteration_log=[],
         last_prompt="",
+        token_usage_log=[],
     )

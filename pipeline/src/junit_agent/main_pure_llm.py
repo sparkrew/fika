@@ -216,8 +216,40 @@ def main() -> int:
                 for r in uncovered_list:
                     print(f"  - {r['third_party_method']}")
 
+        # Token usage summary
+        token_log = final_state.get("token_usage_log", [])
+        if token_log:
+            input_tokens_list = [u.get("input_tokens", 0) for u in token_log if u.get("input_tokens")]
+            output_tokens_list = [u.get("output_tokens", 0) for u in token_log if u.get("output_tokens")]
+            total_input = sum(input_tokens_list)
+            total_output = sum(output_tokens_list)
+            num_calls = len(input_tokens_list)
+
+            print(f"\nToken Usage ({num_calls} LLM call(s)):")
+            print(f"  Total input tokens:  {total_input:,}")
+            print(f"  Total output tokens: {total_output:,}")
+            print(f"  Total tokens:        {total_input + total_output:,}")
+            if num_calls > 0:
+                print(f"  Avg input tokens:    {total_input / num_calls:,.0f}")
+                print(f"  Avg output tokens:   {total_output / num_calls:,.0f}")
+
+            for i, u in enumerate(token_log, 1):
+                inp_t = u.get("input_tokens", 0)
+                out_t = u.get("output_tokens", 0)
+                print(f"  Iteration {i}: input={inp_t:,}  output={out_t:,}  total={inp_t + out_t:,}")
+
         # Save results to JSON
         if args.output_json:
+            token_summary = {}
+            if token_log:
+                token_summary = {
+                    "total_input_tokens": total_input,
+                    "total_output_tokens": total_output,
+                    "total_tokens": total_input + total_output,
+                    "avg_input_tokens": total_input / num_calls if num_calls > 0 else 0,
+                    "avg_output_tokens": total_output / num_calls if num_calls > 0 else 0,
+                    "per_iteration": token_log,
+                }
             output_data = {
                 "success": success,
                 "iterations": iterations,
@@ -225,6 +257,7 @@ def main() -> int:
                 "covered_count": covered,
                 "total_targets": total,
                 "coverage_rate": covered / total if total > 0 else 0,
+                "token_usage": token_summary,
                 "validation_results": results,
                 "test_class_names": [c["class_name"] for c in test_classes],
             }
