@@ -264,7 +264,14 @@ def process_single_file(
         else:
             formatted = _format_feedback(rr.combined)
             last_error = formatted
-            _log(f"  [Run] failed (exit={rr.exit_code}), will retry" if it < max_iters else f"  [Run] failed (exit={rr.exit_code}), no retries left")
+            retry_msg = "will retry" if it < max_iters else "no retries left"
+            _log(f"  [Run] failed (exit={rr.exit_code}), {retry_msg}")
+            # Print error details (truncated for readability)
+            if formatted:
+                error_preview = formatted[:3000]
+                _log(f"  [Run] Error details:\n{error_preview}")
+                if len(formatted) > 3000:
+                    _log(f"  ... (truncated, {len(formatted)} chars total)")
 
     if not success:
         repo = Path(cfg.repo_root)
