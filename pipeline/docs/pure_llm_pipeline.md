@@ -1,13 +1,13 @@
-# Pure-LLM Reachability Test Generation Pipeline
+# Pure-LLM Reachability Scenario Generation Pipeline
 
-This document describes the **pure-LLM** pipeline for generating JUnit 5 reachability tests. Unlike the original pipeline (which reads pre-extracted method data from a JSON file and feeds it to the LLM), this approach gives the LLM **one Java source file at a time** and asks it to identify and generate tests for third-party dependency call sites in that file.
+This document describes the **pure-LLM** pipeline for generating JUnit 5 reachability scenarios. Unlike the original pipeline (which reads pre-extracted method data from a JSON file and feeds it to the LLM), this approach gives the LLM **one Java source file at a time** and asks it to identify and generate reachability scenarios for third-party dependency call sites in that file.
 
 ## Overview
 
 | Aspect | Original pipeline | Pure-LLM pipeline |
 |---|---|---|
 | LLM input | Structured JSON (entryPoint, methodSources, constructors, etc.) | One `.java` source file per LLM call |
-| LLM task | Generate one test for one specific call path | Identify all dependency call sites in a class and generate tests for each |
+| LLM task | Generate one scenario for one specific call path | Identify all dependency call sites in a class and generate scenarios for each |
 | JSON file role | Drives prompting (tells the LLM what to test) | Validation only (used to measure how many targets the LLM covered) |
 | Feedback loop | Compilation errors + coverage gaps | Compilation/runtime errors only |
 | Context usage | Small (one call chain) | Moderate (one class at a time, stays within context limits) |
@@ -29,7 +29,7 @@ This document describes the **pure-LLM** pipeline for generating JUnit 5 reachab
 │          │                                                   │
 │          ▼                                                   │
 │   ┌─────────────┐                                            │
-│   │  Write       │  Write generated test classes             │
+│   │  Write       │  Write generated scenario classes         │
 │   └──────┬──────┘                                            │
 │          │                                                   │
 │          ▼                                                   │
@@ -37,7 +37,7 @@ This document describes the **pure-LLM** pipeline for generating JUnit 5 reachab
 │   │  Run Maven   │  Compile + test                           │
 │   └──────┬──────┘                                            │
 │          │                                                   │
-│          ├── success ──▶ keep tests, next file               │
+│          ├── success ──▶ keep scenarios, next file            │
 │          │                                                   │
 │          └── failure ──▶ retry with error feedback            │
 │                         (up to --iters times)                │
@@ -46,7 +46,7 @@ This document describes the **pure-LLM** pipeline for generating JUnit 5 reachab
          │
          ▼
 ┌──────────────────┐
-│  3. Final build   │  Run all successful tests together
+│  3. Final build   │  Run all successful scenarios together
 └────────┬─────────┘
          │
          ▼
@@ -71,11 +71,11 @@ Walks the project directory and reads every `.java` file, **excluding** anything
 For **each Java source file**, the LLM receives that file's source code and is asked to:
 
 1. Identify all third-party / dependency method call sites in this class
-2. Generate a separate JUnit 5 test class for each call site
+2. Generate a separate JUnit 5 reachability scenario for each call site
 
-If the generated tests **fail to compile or run**, the LLM receives the Maven error output and the previous code, and is asked to fix them. This retries up to `--iters` times.
+If the generated scenarios **fail to compile or run**, the LLM receives the Maven error output and the previous code, and is asked to fix them. This retries up to `--iters` times.
 
-If the tests **pass**, they are kept and the pipeline moves to the next file. If all retries are exhausted, the failed tests are cleaned up.
+If the scenarios **pass**, they are kept and the pipeline moves to the next file. If all retries are exhausted, the failed scenarios are cleaned up.
 
 This class-by-class approach keeps each prompt small and well within LLM context limits, even for large projects.
 
@@ -83,14 +83,14 @@ This class-by-class approach keeps each prompt small and well within LLM context
 
 ### Step 3: Final build
 
-After processing all files, runs Maven once more with all the successfully generated test classes to ensure they work together.
+After processing all files, runs Maven once more with all the successfully generated scenario classes to ensure they work together.
 
 ### Step 4: Validate
 
 Loads the JSON targets file and checks each `(thirdPartyMethod, directCaller)` pair against JaCoCo coverage data. Reports:
 
 - Total call sites in the JSON: **N**
-- Covered by the generated tests: **X**
+- Covered by the generated scenarios: **X**
 - Coverage rate: **X/N**
 
 Each target is checked using the existing `get_coverage_result()` function which parses JaCoCo XML reports.
@@ -118,14 +118,14 @@ python -m junit_agent.main_pure_llm /path/to/java/project \
 |---|---|---|
 | `repo_root` | Yes | Path to the Maven Java project |
 | `--targets` | Yes | JSON file with third-party method targets (for validation) |
-| `--test-package` | No | Package for generated tests (default: `generated`) |
+| `--test-package` | No | Package for generated scenarios (default: `generated`) |
 | `--api` | No | `hf` (local HuggingFace), `deepseek`, or `openrouter` (default: `hf`) |
 | `--model` | No | Model identifier |
 | `--api-key` | No | API key for DeepSeek/OpenRouter |
 | `--iters` | No | Max retry iterations per file (default: 5) |
 | `--temp` | No | Sampling temperature (default: 0.1) |
 | `--max-new` | No | Max new tokens (default: 4096) |
-| `--run-all` | No | Run full Maven test suite instead of only generated tests |
+| `--run-all` | No | Run full Maven test suite instead of only generated scenarios |
 | `--output-json` | No | Save results summary to JSON |
 | `--log-file` | No | Append detailed logs to file |
 
@@ -145,11 +145,12 @@ an expert at identifying third-party and dependency method calls in Java source 
 
 ```
 You are given the source code of a single Java class from a project. Your task is to
-generate JUnit 5 reachability tests that exercise as many third-party / dependency
+generate JUnit 5 reachability scenarios that exercise as many third-party / dependency
 method call sites in this class as possible.
 
-A "reachability test" is a test whose only goal is to invoke a specific third-party
-method during execution. No assertions, inspections, or verifications are required.
+A "reachability scenario" is a piece of code whose only goal is to invoke a specific
+third-party method during execution. No assertions, inspections, or verifications are
+required.
 
 A "third-party / dependency method" is any method that belongs to an external library
 (not defined in this project's own source code). Examples include calls to Apache
@@ -189,7 +190,7 @@ Hard constraints:
 ### Retry Prompt (compilation errors)
 
 ```
-The previously generated tests had compilation or runtime errors. Fix the issues
+The previously generated scenarios had compilation or runtime errors. Fix the issues
 below while keeping ALL hard constraints.
 
 Compilation / runtime errors:
@@ -233,8 +234,8 @@ Only `thirdPartyMethod` and the path are required for validation. The rest is in
 RESULTS SUMMARY
 ================================================================================
 Source files processed: 25/25
-Files with successful tests: 20
-Total test classes generated: 48
+Files with successful scenarios: 20
+Total scenario classes generated: 48
 Final Maven build: passed
 Dependency call sites covered: 12/20 (60.0%)
 
@@ -260,8 +261,8 @@ Not covered (8):
 ```json
 {
   "source_files_processed": 25,
-  "files_with_successful_tests": 20,
-  "test_classes_generated": 48,
+  "files_with_successful_scenarios": 20,
+  "scenario_classes_generated": 48,
   "final_maven_success": true,
   "covered_count": 12,
   "total_targets": 20,
@@ -279,7 +280,7 @@ Not covered (8):
       "source_file": "src/main/java/com/example/Service.java",
       "success": true,
       "iterations_used": 1,
-      "test_classes": ["Reachability_Service_process_1Test"],
+      "scenario_classes": ["Reachability_Service_process_1Test"],
       "token_usage": [{"input_tokens": 5000, "output_tokens": 1500, "total_tokens": 6500}]
     }
   ],
@@ -291,6 +292,6 @@ Not covered (8):
       "error": null
     }
   ],
-  "test_class_names": ["Reachability_Service_process_1Test"]
+  "scenario_class_names": ["Reachability_Service_process_1Test"]
 }
 ```
