@@ -1,0 +1,276 @@
+
+====================================================================================================
+PURE-LLM LOG SESSION: 2026-11-02T21:49:01.627435
+====================================================================================================
+
+[Extract] reading project source files
+[Extract] found 8 Java source files to process
+
+================================================================================
+[1/8] Processing: src/main/java/tech/tablesaw/io/json/JsonReadOptions.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 23 test class(es) (input=1,664, output=3,397)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+COMPILATION ERRORS DETECTED
+================================================================================
+
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_dateTimeFormat_1Test.java:[20,24] package JsonReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_dateTimeFormat_1Test.java:[20,43] cannot find symbol
+  symbol:   variable JsonReadOptions
+  location: class generated.Reachability_JsonReadOptions_Builder_dateTimeFormat_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_columnTypes_2Test.java:[20,24] package JsonReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_columnTypes_2Test.java:[20,43] cannot find symbol
+  symbol:   variable JsonReadOptions
+  location: class generated.Reachability_JsonReadOptions_Builder_columnTypes_2Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_header_1Test.java:[20,24] package JsonReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_header_1Test.java:[20,43] cannot find symbol
+  symbol:   variable JsonReadOptions
+  location: class generated.Reachability_JsonReadOptions_Builder_header_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_missingValueIndicator_1Test.java:[20,24] package JsonReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_missingValueIndicator_1Test.java:[20,43] cannot find symbol
+  symbol:   variable JsonReadOptions
+  location: class generated.Reachability_JsonReadOptions_Builder_missingValueIndicator_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_build_1Test.java:[20,24] package JsonReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_build_1Test.java:[20,43] cannot find symbol
+  symbol:   variable JsonReadOptions
+  location: class generated.Reachability_JsonReadOptions_Builder_build_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_path_1Test.java:[20,24] package JsonReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonReadOptions_Builder_path_1Test.java:[20,43] cannot find symbol
+  symbol:   variable JsonReadOpti
+  ... (truncated, 9728 chars total)
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[2/8] Processing: src/main/java/tech/tablesaw/io/json/JsonReader.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 12 test class(es) (input=1,603, output=1,485)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+MAVEN ERROR REPORT
+================================================================================
+
+    [INFO] ------------------------------------------------------------------------
+>>> [ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project tablesaw-json: No tests matching pattern "generated.GeneratedTest_1+generated.Reachability_JsonReader_read_1Test+generated.Reachability_JsonReader_read_2Test+generated.Reachability_JsonReader_read_3Test+generated.Reachability_JsonReader_read_4Test+generated.Reachability_JsonReader_read_5Test+generated.Reachability_JsonReader_read_6Test+generated.Reachability_JsonReader_convertArrayOfArrays_1Test+generated.Reachability_JsonReader_convertArrayOfArrays_2Test+generated.Reachability_JsonReader_convertArrayOfObjects_1Test+generated.Reachability_JsonReader_convertArrayOfObjects_2Test+generated.Reachability_JsonReader_convertArrayOfObjects_3Test" were executed! (Set -Dsurefire.failIfNoSpecifiedTests=false to ignore this error.) -> [Help 1]
+>>> [ERROR] 
+>>> [ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+>>> [ERROR] Re-run Maven using the -X switch to enable full debug logging.
+>>> [ERROR] 
+>>> [ERROR] For more information about the errors and possible solutions, please read the following articles:
+>>> [ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
+
+================================================================================
+
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[3/8] Processing: src/main/java/tech/tablesaw/io/json/JsonWriteOptions.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 7 test class(es) (input=854, output=571)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+MAVEN ERROR REPORT
+================================================================================
+
+    [INFO] ------------------------------------------------------------------------
+>>> [ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project tablesaw-json: No tests matching pattern "generated.Reachability_JsonWriteOptions_builderWriter_1Test+generated.Reachability_JsonWriteOptions_builderDestination_2Test+generated.Reachability_JsonWriteOptions_asObjects_3Test+generated.Reachability_JsonWriteOptions_header_4Test+generated.Reachability_JsonWriteOptions_Builder_asObjects_5Test+generated.Reachability_JsonWriteOptions_Builder_header_6Test+generated.Reachability_JsonWriteOptions_Builder_build_7Test" were executed! (Set -Dsurefire.failIfNoSpecifiedTests=false to ignore this error.) -> [Help 1]
+>>> [ERROR] 
+>>> [ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+>>> [ERROR] Re-run Maven using the -X switch to enable full debug logging.
+>>> [ERROR] 
+>>> [ERROR] For more information about the errors and possible solutions, please read the following articles:
+>>> [ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
+
+================================================================================
+
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[4/8] Processing: src/main/java/tech/tablesaw/io/json/JsonWriter.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 17 test class(es) (input=1,223, output=2,480)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+COMPILATION ERRORS DETECTED
+================================================================================
+
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_13Test.java:[15,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_13Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_10Test.java:[16,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_10Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_6Test.java:[15,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_6Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_14Test.java:[15,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_14Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_1Test.java:[13,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_9Test.java:[16,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_9Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_8Test.java:[15,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_8Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_5Test.java:[15,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_5Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_12Test.java:[19,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_12Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_4Test.java:[15,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_4Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_write_11Test.java:[16,9] cannot find symbol
+  symbol:   class Writer
+  location: class generated.Reachability_JsonWriter_write_11Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonWriter_register_2Test.java:[10,29] cannot find
+  ... (truncated, 3666 chars total)
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[5/8] Processing: src/main/java/tech/tablesaw/io/jsonl/JsonlReadOptions.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 21 test class(es) (input=1,479, output=2,123)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+COMPILATION ERRORS DETECTED
+================================================================================
+
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_builder_4Test.java:[17,9] cannot find symbol
+  symbol:   variable JsonlReadOptions
+  location: class generated.Reachability_JsonlReadOptions_builder_4Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_locale_1Test.java:[12,25] package JsonlReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_locale_1Test.java:[12,44] cannot find symbol
+  symbol:   variable JsonlReadOptions
+  location: class generated.Reachability_JsonlReadOptions_Builder_locale_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_builder_1Test.java:[11,9] cannot find symbol
+  symbol:   variable JsonlReadOptions
+  location: class generated.Reachability_JsonlReadOptions_builder_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_builderFromString_1Test.java:[11,9] cannot find symbol
+  symbol:   variable JsonlReadOptions
+  location: class generated.Reachability_JsonlReadOptions_builderFromString_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_columnTypes_2Test.java:[13,25] package JsonlReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_columnTypes_2Test.java:[13,44] cannot find symbol
+  symbol:   variable JsonlReadOptions
+  location: class generated.Reachability_JsonlReadOptions_Builder_columnTypes_2Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_columnTypesPartial_1Test.java:[14,25] package JsonlReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_columnTypesPartial_1Test.java:[14,44] cannot find symbol
+  symbol:   variable JsonlReadOptions
+  location: class generated.Reachability_JsonlReadOptions_Builder_columnTypesPartial_1Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_missingValueIndicator_1Test.java:[11,25] package JsonlReadOptions does not exist
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReadOptions_Builder_missingValueIndicator_1Test.java:[11,44] cannot find symbol
+  symbol:   variable JsonlReadOptions
+  location: class generated.Reachability_JsonlReadOptions_Builder_missingValueInd
+  ... (truncated, 8660 chars total)
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[6/8] Processing: src/main/java/tech/tablesaw/io/jsonl/JsonlReader.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 11 test class(es) (input=1,666, output=2,183)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+COMPILATION ERRORS DETECTED
+================================================================================
+
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReader_read_3Test.java:[24,9] cannot find symbol
+  symbol:   class Reader
+  location: class generated.Reachability_JsonlReader_read_3Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReader_read_2Test.java:[22,9] cannot find symbol
+  symbol:   class Reader
+  location: class generated.Reachability_JsonlReader_read_2Test
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlReader_register_1Test.java:[13,35] cannot find symbol
+  symbol:   variable Table
+  location: class generated.Reachability_JsonlReader_register_1Test
+
+================================================================================
+
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[7/8] Processing: src/main/java/tech/tablesaw/io/jsonl/JsonlWriteOptions.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 3 test class(es) (input=700, output=316)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+MAVEN ERROR REPORT
+================================================================================
+
+    [INFO] ------------------------------------------------------------------------
+>>> [ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project tablesaw-json: No tests matching pattern "generated.Reachability_JsonlWriteOptions_builderWriterTest+generated.Reachability_JsonlWriteOptions_builderDestinationTest+generated.Reachability_JsonlWriteOptions_Builder_buildTest" were executed! (Set -Dsurefire.failIfNoSpecifiedTests=false to ignore this error.) -> [Help 1]
+>>> [ERROR] 
+>>> [ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+>>> [ERROR] Re-run Maven using the -X switch to enable full debug logging.
+>>> [ERROR] 
+>>> [ERROR] For more information about the errors and possible solutions, please read the following articles:
+>>> [ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
+
+================================================================================
+
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[8/8] Processing: src/main/java/tech/tablesaw/io/jsonl/JsonlWriter.java
+================================================================================
+  [Generate] iteration 1/1
+  [Generate] produced 13 test class(es) (input=1,077, output=2,800)
+  [Run] compiling and running tests
+  [Run] failed (exit=1), no retries left
+  [Run] Error details:
+================================================================================
+COMPILATION ERRORS DETECTED
+================================================================================
+
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_6Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_9Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_11Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_4Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_1Test.java:[19,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_10Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_5Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_8Test.java:[21,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_2Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_7Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+[ERROR] /part/01/Tmp/gamageyo/fika/experiments/tablesaw/json/src/test/java/generated/Reachability_JsonlWriter_write_3Test.java:[20,28] no suitable constructor found for Destination(no arguments)
+
+================================================================================
+
+  [Cleanup] removed unsuccessful test files
+  [Done] failed after 1 iteration(s)
+
+================================================================================
+[Final] running all generated tests together + validating coverage
+================================================================================
+[Final] 0/14 dependency call sites covered
