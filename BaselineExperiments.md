@@ -178,5 +178,4 @@ We compare the complete Fika approach against three reduced variants to isolate 
 - [jooby-BL2](https://github.com/yogyagamage/jooby/tree/baseline2)
 - [jooby-BL3](https://github.com/yogyagamage/jooby/tree/baseline3)    
 
-
-
+We also experimented with a pure LLM approach, providing it with no static analysis data beyond the project's source code. For further details about the experiment and its results, please check out the `bl-pure-llm` branch of the Fika repository (this repo).
