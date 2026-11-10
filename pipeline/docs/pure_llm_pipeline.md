@@ -256,6 +256,8 @@ Not covered (8):
 ================================================================================
 ```
 
+The logs from the experiments are available in `pipeline/pure-llm-client-logs`.
+
 ### JSON output (`--output-json`)
 
 ```json
